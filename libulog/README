@@ -1,0 +1,9 @@
+libulog
+=======
+This is a minimalistic logging library derived from Android logger.
+
+If your kernel does not have the ulogger driver (drivers/staging/ulogger),
+you'll need to apply the patch provided in kernel/ulogger.patch. It should apply
+cleanly or with trivial changes on a recent kernel.
+
+Read include/ulog.h for more information about this library.

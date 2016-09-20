@@ -1,0 +1,117 @@
+GENERAL OVERVIEW
+----------------
+ulogcat is the equivalent of Android 'logcat' for ulog messages, with
+additional features:
+
+* Support for the following types of log buffers:
+  - ulog
+  - kernel ring
+  - Android log
+  The contents of those buffers can be merged or viewed separately
+* Output can be received via a TCP connection
+* Output can be stored on a persistent storage medium
+* Persistent storage operation can be remotely controlled
+* Output format can be one the following:
+  - text (short, aligned, process, long, csv), optionally colored
+  - binary
+  - ckcm
+
+IMPORTANT NOTE: in order to support kernel ring messages, ulogcat relies
+on daemon kmsgd (in project ulog.git).
+
+SPECIFYING INPUT LOG BUFFERS
+----------------------------
+Options -k (kernel ring), -a (Android log) and -u (ulog) specify buffers from
+which messages should be read, processed and merged.
+On a Linux PC, the native syslog daemon may be interfering with daemon kmsgd and
+prevent option -k from working properly.
+
+The specified input buffers (ulog, kernel, Android) are merged into a single
+output stream.
+
+RECEIVING OUTPUT FROM A TCP CONNECTION
+--------------------------------------
+Simply use option '-p' to specify a TCP port. Combined with option '-v ckcm',
+this option can be used as a replacement for ckcmd (but without RemoteUI
+support).
+
+When this option is enabled, ulogcat waits for an initial connection before
+processing log messages; this allows retrieval of existing messages at first
+connection; subsequent connections only provide live messages.
+
+Note: this initial wait can be bypassed when persistent features
+are used with option '-w'.
+
+PERSISTENT LOGGING
+------------------
+Using option '-f', you can specify both a directory and a filename which will
+be used to store output in a persistent way (e.g. on a USB stick).
+The filename specified in option -f must have the following form:
+
+  <directory>/<filename>
+
+If <directory> is an absolute path, ulogcat output will be written to files
+<directory>/<filename>, <directory>/<filename>.1, <directory>/<filename>.2, etc
+in a rotating fashion. Files are rotated such that each file does not exceed
+a specified size, and the total number of files does not exceed a specified
+number. When <directory>/<filename> already exists, ulogcat output is appended
+to the file, with a separating banner; this helps splitting log files into
+session chunks.
+
+If <directory> is a relative path, the same rotation is performed, but ulogcat
+assumes the path is located on removable storage. It dynamically detects volume
+mounts and selects the first suitable mounted volume in which <directory>
+exists in the root directory.
+For instance, you can plug a USB stick containing <directory>, and ulogcat
+will start using it for persistent storage, remounting the volume read-write if
+necessary.
+Note that you should choose a sufficiently distinctive/specific <directory>
+name, so that ulogcat does not use random storage media in unpredictable ways.
+For example, do not use common directory names such as 'test' or 'data'.
+
+When removable storage is used, it is remounted read-write (if necessary).
+As a result, removing the medium during ulogcat operation can result in
+filesystem corruption (especially so on FAT USB sticks and SDCards).
+To avoid these problems, you should first tell ulogcat to stop its persistent
+logging before removing the medium. The next section explains how to do this.
+
+REMOTE CONTROL
+--------------
+When ulogcat is running as a service (ulogcatd), it can be necessary to
+disable persistent logging (e.g. to remove a medium without risking filesystem
+corruption), or to be notified of the current operation status.
+ulogcat supports 2 remote control methods:
+
+1. Signals
+With sufficient privileges, you can send the following signals to ulogcat to
+trigger actions:
+
+SIGALRM => force a persistent storage flush to disk
+SIGUSR1 => enable persistent storage, possibly remounting a volume read-write
+SIGUSR2 => disable persistent storage, possibly remounting a volume read-only
+SIGHUP,SIGTERM,SIGQUIT,SIGINT,SIGPIPE => quit
+
+Therefore, sending SIGUSR2 before removing a medium ensures it is remounted
+read-only, preventing corruption.
+
+2. Using libpomp
+ulogcat provides a libpomp server allowing remote control and notifications.
+The interface is specified as follows:
+
+Message ID   Format     From    Contents/Action
+--------------------------------------------------------------------------------
+QUERY   (0)  NULL       client  Ask the server to send a STATUS message
+ENABLE  (1)  NULL       client  Enable persistent logging (remount read-write)
+DISABLE (2)  NULL       client  Disable persistent logging (remount read-only)
+FLUSH   (3)  NULL       client  Flush output to disk
+STATUS  (4)  "%d%d%s%s" server  enabled(bool),alive(bool),path(str),target(str)
+EJECT   (5)  NULL       client  Eject (unmount) volume used for storage
+
+An Android HMI allows ulogcatd user control.
+
+USING BINARY OUTPUT FORMATS
+---------------------------
+When option '-v binary' is used, output consists in raw ulogger message frames
+that needs to be decoded with a dedicated tool (such as 'qlog').
+When option '-v ckcm' is used, CKCM frames with PLOG formatting are produced
+on output.

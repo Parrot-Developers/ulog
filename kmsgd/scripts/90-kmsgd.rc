@@ -1,0 +1,11 @@
+# .rc file for kmsgd service -*- mode:conf -*-
+on init
+    write /sys/devices/virtual/misc/ulog_main/logs "ulog_kmsgd 17"
+
+service kmsgd /usr/bin/kmsgd
+    setenv ULOG_DEVICE kmsgd
+    class main
+    # if not capability SYSLOG:
+    # klogctl(2): Operation not permitted
+    capability SYSLOG
+    user root

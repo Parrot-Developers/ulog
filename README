@@ -1,0 +1,6 @@
+ulog:
+
+This is a minimalistic logging library derived from Android logger.
+It also provides several other libraries and tools.
+
+License: Apache2 except the linux kernel driver under GPL2
