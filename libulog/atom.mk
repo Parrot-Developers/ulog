@@ -5,7 +5,7 @@ LOCAL_MODULE := libulog
 LOCAL_DESCRIPTION := A minimalistic logging library derived from Android logger
 LOCAL_CATEGORY_PATH := libs
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
-LOCAL_CFLAGS := -Wextra -fvisibility=hidden
+LOCAL_CFLAGS := -fvisibility=hidden
 LOCAL_SRC_FILES := ulog_write.c ulog_read.c ulog.cpp ulog_write_android.c
 ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
 ifdef USE_ALCHEMY_ANDROID_SDK
