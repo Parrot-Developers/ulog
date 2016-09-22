@@ -283,7 +283,7 @@ extern struct ulog_cookie __ulog_default_cookie;
 void ulog_log(uint32_t prio, struct ulog_cookie *cookie, const char *fmt, ...)
 	__attribute__ ((format (printf, 3, 4)));
 void ulog_vlog(uint32_t prio, struct ulog_cookie *cookie, const char *fmt,
-	       va_list ap);
+	       va_list ap) __attribute__ ((format (printf, 3, 0)));
 void ulog_log_buf(uint32_t prio, struct ulog_cookie *cookie, const void *buf,
 		  int size);
 void ulog_log_str(uint32_t prio, struct ulog_cookie *cookie, const char *str);
