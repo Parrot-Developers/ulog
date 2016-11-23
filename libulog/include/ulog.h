@@ -248,7 +248,7 @@ int ulog_get_tag_names(const char **names, int maxlen);
 #define __ULOG_REF(_name)  __ulog_cookie_ ## _name
 #define __ULOG_REF2(_name) __ULOG_REF(_name)
 #define __ULOG_DECL(_n)    struct ulog_cookie __ULOG_REF(_n) =	\
-	{#_n, sizeof(#_n), -1, NULL}
+	{#_n, sizeof(#_n), -1, NULL, NULL}
 
 #ifdef __cplusplus
 /* codecheck_ignore[STORAGE_CLASS] */
@@ -275,6 +275,7 @@ struct ulog_cookie {
 	const char         *name;     /* tag name */
 	int                 namesize; /* tag name length + 1 */
 	int                 level;    /* current logging level for this tag */
+	void               *userdata; /* cookie userdata */
 	struct ulog_cookie *next;     /* next registered cookie */
 };
 
@@ -295,6 +296,10 @@ typedef void (*ulog_write_func_t) (uint32_t prio, struct ulog_cookie *cookie,
 		  const char *buf, int len);
 
 int ulog_set_write_func(ulog_write_func_t func);
+
+typedef void (*ulog_cookie_register_func_t) (struct ulog_cookie *cookie);
+
+int ulog_set_cookie_register_func(ulog_cookie_register_func_t func);
 
 /**
  * Call a function for each cookie.

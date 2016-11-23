@@ -39,6 +39,7 @@ ULOG_EXPORT struct ulog_cookie __ulog_default_cookie = {
 	.name     = "",
 	.namesize = 1,
 	.level    = -1,
+	.userdata = NULL,
 	.next     = NULL,
 };
 
@@ -50,12 +51,15 @@ static struct {
 	int                 fd;      /* kernel logger file descriptor */
 	ulog_write_func_t   writer;  /* output callback */
 	ulog_write_func_t   writer2; /* for stderr wrapper */
+	/* cookie register hook */
+	ulog_cookie_register_func_t cookie_register_hook;
 	struct ulog_cookie *cookie_list;
 } ctrl = {
 	.lock        = PTHREAD_MUTEX_INITIALIZER,
 	.fd          = -1,
 	.writer      = __writer_init,
 	.writer2     = NULL,
+	.cookie_register_hook = NULL,
 	.cookie_list = &__ulog_default_cookie,
 };
 
@@ -218,6 +222,17 @@ ULOG_EXPORT int ulog_set_write_func(ulog_write_func_t func)
 	return 0;
 }
 
+ULOG_EXPORT int ulog_set_cookie_register_func(ulog_cookie_register_func_t func)
+{
+	if (!func)
+		return -EINVAL;
+
+	pthread_mutex_lock(&ctrl.lock);
+	ctrl.cookie_register_hook = func;
+	pthread_mutex_unlock(&ctrl.lock);
+	return 0;
+}
+
 ULOG_EXPORT int ulog_foreach(
 		void (*cb) (struct ulog_cookie *cookie, void *userdata),
 		void *userdata)
@@ -268,6 +283,7 @@ static void ulog_init_cookie(struct ulog_cookie *cookie)
 {
 	char buf[80];
 	int level = -1;
+	ulog_cookie_register_func_t cookie_register_hook;
 	const char *prop;
 
 	if (cookie->name[0]) {
@@ -302,9 +318,17 @@ static void ulog_init_cookie(struct ulog_cookie *cookie)
 		ctrl.cookie_list = cookie;
 		/* insert barrier here? */
 		cookie->level = level;
+		cookie_register_hook = ctrl.cookie_register_hook;
+	} else {
+		/* cookie already registered */
+		cookie_register_hook = NULL;
 	}
 
 	pthread_mutex_unlock(&ctrl.lock);
+
+	/* call cookie register hook func */
+	if (cookie_register_hook)
+		cookie_register_hook(cookie);
 }
 
 static void __ulog_vlog(uint32_t prio, struct ulog_cookie *cookie,
