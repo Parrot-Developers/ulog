@@ -156,6 +156,7 @@ static void __writer_init(uint32_t prio, struct ulog_cookie *cookie,
 	const char *prop, *dev;
 	ulog_write_func_t writer;
 	char devbuf[32];
+	struct stat st;
 
 	pthread_mutex_lock(&ctrl.lock);
 
@@ -170,6 +171,13 @@ static void __writer_init(uint32_t prio, struct ulog_cookie *cookie,
 		}
 
 		ctrl.fd = open(dev, O_WRONLY|O_CLOEXEC);
+		if ((ctrl.fd >= 0) &&
+		    /* sanity check: /dev/ulog_* must be device files */
+		    ((fstat(ctrl.fd, &st) < 0) || !S_ISCHR(st.st_mode))) {
+			close(ctrl.fd);
+			ctrl.fd = -1;
+		}
+
 		if (ctrl.fd >= 0)
 			writer = __writer_kernel;
 		else if (ulog_is_android())
