@@ -127,6 +127,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <string.h>
 
 /*----------------------------------------------------------------------------*/
 /* ULOG API */
@@ -160,6 +161,13 @@
 #define ULOGN(...)      ULOG_PRI(ULOG_NOTICE, __VA_ARGS__)
 #define ULOGI(...)      ULOG_PRI(ULOG_INFO,   __VA_ARGS__)
 #define ULOGD(...)      ULOG_PRI(ULOG_DEBUG,  __VA_ARGS__)
+
+/**
+ * Log a simple string message and errno with priority ERR.
+ */
+#define ULOG_ERRNO(_msg, _err)						\
+	ULOGE("%s:%d: %s err=%d(%s)", __func__, __LINE__, _msg, _err,	\
+		      strerror(_err))
 
 /**
  * Maximum length of an ascii message.
