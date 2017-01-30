@@ -51,6 +51,7 @@ struct ulogger_log {
 	size_t			w_off;	/* current write head offset */
 	size_t			head;	/* new readers start here */
 	size_t			size;	/* size of the log */
+	size_t                  dropped;/* number of globally dropped entries */
 };
 
 /*
@@ -65,6 +66,7 @@ struct ulogger_reader {
 	size_t			r_off;	/* current read head offset */
 	bool			r_all;	/* reader can read all entries */
 	int			r_ver;	/* reader ABI version */
+	size_t			r_dropped; /* dropped entries for reader */
 };
 
 /* ulogger_offset - returns index 'n' into the log via (optimized) modulus */
@@ -167,6 +169,63 @@ static ssize_t copy_header_to_user(int ver, struct ulogger_entry *entry,
 	}
 
 	return copy_to_user(buf, hdr, hdr_len);
+}
+
+/*
+ * do_read_drop_summary_to_user - provides a summary of dropped log entries to
+ * user-space buffer 'buf'.
+ *
+ * Caller must hold log->mutex.
+ */
+static ssize_t do_read_drop_summary(struct ulogger_log *log,
+				    struct ulogger_reader *reader,
+				    char __user *buf,
+				    size_t count)
+{
+	int ret;
+	size_t hdrlen;
+	char msgbuf[128];
+	struct ulogger_entry *entry;
+	struct ulogger_entry summary, scratch;
+
+	/*
+	 * First, copy the header to userspace, using the version of
+	 * the header requested
+	 */
+	entry = get_entry_header(log, reader->r_off, &scratch);
+
+	/* build a fake log entry indicating how many entries were dropped */
+	memcpy(&summary, entry, sizeof(summary));
+	summary.pid = 0;
+	summary.tid = 0;
+
+	ret = snprintf(msgbuf, sizeof(msgbuf),
+		       /* <pname>\0<tname>\0<priority:4><tag>\0<message> */
+		       "%c%c%c%c%culog%c%d log entries dropped\n",
+		       '\0',       /* empty process name, no thread (pid=tid) */
+		       4, 0, 0, 0, /* WARN prio level */
+		       '\0',       /* tag trailing null byte */
+		       (int)reader->r_dropped);
+
+	if ((ret < 0) || (ret >= sizeof(msgbuf)))
+		return -EFAULT;
+
+	summary.len = ret+1; /* count trailing null byte */
+	hdrlen = get_user_hdr_len(reader->r_ver);
+
+	if (count < hdrlen + summary.len)
+		return -EINVAL;
+
+	if (copy_header_to_user(reader->r_ver, &summary, buf))
+		return -EFAULT;
+
+	buf += hdrlen;
+
+	if (copy_to_user(buf, msgbuf, summary.len))
+		return -EFAULT;
+
+	reader->r_dropped = 0;
+	return hdrlen + summary.len;
 }
 
 /*
@@ -305,6 +364,15 @@ start:
 		goto start;
 	}
 
+	/*
+	 * If this reader has missed dropped entries, return a fake generated
+	 * log entry with drop information.
+	 */
+	if (unlikely((reader->r_dropped > 0))) {
+		ret = do_read_drop_summary(log, reader, buf, count);
+		goto out;
+	}
+
 	/* get the size of the next entry */
 	ret = get_user_hdr_len(reader->r_ver) +
 		get_entry_msg_len(log, reader->r_off);
@@ -328,17 +396,20 @@ out:
  *
  * Caller must hold log->mutex.
  */
-static size_t get_next_entry(struct ulogger_log *log, size_t off, size_t len)
+static size_t get_next_entry(struct ulogger_log *log, size_t off, size_t len,
+			     size_t *dropped)
 {
-	size_t count = 0;
+	size_t count = 0, entries = 0;
 
 	do {
 		size_t nr = sizeof(struct ulogger_entry) +
 			get_entry_msg_len(log, off);
 		off = ulogger_offset(log, off + nr);
 		count += nr;
+		entries++;
 	} while (count < len);
 
+	*dropped = entries;
 	return off;
 }
 
@@ -381,16 +452,21 @@ static inline int is_between(size_t a, size_t b, size_t c)
  */
 static void fix_up_readers(struct ulogger_log *log, size_t len)
 {
-	size_t old = log->w_off;
+	size_t old = log->w_off, dropped;
 	size_t new = ulogger_offset(log, old + len);
 	struct ulogger_reader *reader;
 
-	if (is_between(old, new, log->head))
-		log->head = get_next_entry(log, log->head, len);
+	if (is_between(old, new, log->head)) {
+		log->head = get_next_entry(log, log->head, len, &dropped);
+		log->dropped += dropped;
+	}
 
 	list_for_each_entry(reader, &log->readers, list)
-		if (is_between(old, new, reader->r_off))
-			reader->r_off = get_next_entry(log, reader->r_off, len);
+		if (is_between(old, new, reader->r_off)) {
+			reader->r_off = get_next_entry(log, reader->r_off, len,
+						       &dropped);
+			reader->r_dropped += dropped;
+		}
 }
 
 /*
@@ -581,6 +657,7 @@ static int ulogger_open(struct inode *inode, struct file *file)
 
 		mutex_lock(&log->mutex);
 		reader->r_off = log->head;
+		reader->r_dropped = log->dropped;
 		list_add_tail(&reader->list, &log->readers);
 		mutex_unlock(&log->mutex);
 
@@ -707,9 +784,12 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 			ret = -EBADF;
 			break;
 		}
-		list_for_each_entry(reader, &log->readers, list)
+		list_for_each_entry(reader, &log->readers, list) {
 			reader->r_off = log->w_off;
+			reader->r_dropped = 0;
+		}
 		log->head = log->w_off;
+		log->dropped = 0;
 		ret = 0;
 		break;
 	case ULOGGER_GET_VERSION:
@@ -767,6 +847,7 @@ static struct ulogger_log VAR = { \
 	.mutex = __MUTEX_INITIALIZER(VAR .mutex), \
 	.w_off = 0, \
 	.head = 0, \
+	.dropped = 0, \
 	.size = SIZE, \
 };
 
