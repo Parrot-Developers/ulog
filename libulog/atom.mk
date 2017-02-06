@@ -4,6 +4,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := libulog
 LOCAL_DESCRIPTION := A minimalistic logging library derived from Android logger
 LOCAL_CATEGORY_PATH := libs
+LOCAL_PBUILD_ALLOW_FORCE_STATIC := 1
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_CFLAGS := -fvisibility=hidden
 LOCAL_SRC_FILES := ulog_write.c ulog_read.c ulog.cpp ulog_write_android.c
