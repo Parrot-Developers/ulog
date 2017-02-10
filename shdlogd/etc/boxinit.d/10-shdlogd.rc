@@ -1,0 +1,3 @@
+service shdlogd /usr/bin/shdlogd
+	class main
+	user root
