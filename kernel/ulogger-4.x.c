@@ -528,7 +528,7 @@ static ssize_t do_write_log_from_user(struct ulogger_log *log,
 ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
 	struct ulogger_log *log = file_get_log(iocb->ki_filp);
-	size_t orig = log->w_off;
+	size_t orig;
 	struct ulogger_entry header;
 	struct timespec now;
 	ssize_t ret = 0, prefix;
@@ -568,6 +568,8 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		return 0;
 
 	mutex_lock(&log->mutex);
+
+	orig = log->w_off;
 
 	/*
 	 * Fix up any readers, pulling them forward to the first readable
