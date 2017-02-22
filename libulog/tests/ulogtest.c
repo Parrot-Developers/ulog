@@ -17,12 +17,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <assert.h>
 #include <sys/prctl.h>
+#include <sys/time.h>
 #include <pthread.h>
 
 #define  ULOG_TAG pulsarsoca
 #include "ulog.h"
+#include "ulograw.h"
 
 ULOG_DECLARE_TAG(pulsarsoca);
 ULOG_DECLARE_TAG(My_Program);
@@ -170,7 +173,6 @@ static void test_va(void)
 	mylog("x=%d y=%c z=%s", 42, 42, "42");
 }
 
-
 static void custom_write_func(uint32_t prio, struct ulog_cookie *cookie,
 		  const char *buf, int len)
 {
@@ -188,6 +190,74 @@ static void test_custom_write_func(void)
 	ULOGI("test_custom_write_func");
 }
 
+static void test_raw_mode(void)
+{
+	int fd, ret;
+	struct timeval tv;
+	struct ulog_raw_entry raw;
+
+	fd = ulog_raw_open(NULL);
+	if (fd < 0) {
+		fprintf(stderr, "cannot open ulog in raw mode: %s\n",
+			strerror(-fd));
+		goto finish;
+	}
+
+	ret = gettimeofday(&tv, NULL);
+	if (ret < 0) {
+		perror("gettimeofday");
+		goto finish;
+	}
+
+	/* random values for testing */
+	raw.entry.pid = 42;
+	raw.entry.tid = 44;
+	raw.entry.sec = tv.tv_sec+1;
+	raw.entry.nsec = tv.tv_usec*1000;
+	raw.entry.euid = 1000;
+	raw.prio = ULOG_WARN;
+	raw.pname = "raw-process";
+	raw.pname_len = strlen(raw.pname)+1;
+	raw.tname = "raw-thread";
+	raw.tname_len = strlen(raw.tname)+1;
+	raw.tag = "raw-tag";
+	raw.tag_len = strlen(raw.tag)+1;
+	raw.message = "A first raw log message.";
+	raw.message_len = strlen(raw.message)+1;
+
+	ret = ulog_raw_log(fd, &raw);
+	if (ret < 0) {
+		fprintf(stderr, "cannog log raw entry: %s\n", strerror(-ret));
+		goto finish;
+	}
+
+	/* random values for testing */
+	raw.entry.pid = 0;
+	raw.entry.tid = 0;
+	raw.entry.sec = tv.tv_sec+2;
+	raw.entry.nsec = tv.tv_usec*1000;
+	raw.entry.euid = 1000;
+	raw.prio = ULOG_INFO;
+	raw.pname = "raw-process2";
+	raw.pname_len = strlen(raw.pname)+1;
+	raw.tname = "raw-thread2"; /* this should be ignored */
+	raw.tname_len = strlen(raw.tname)+1;
+	raw.tag = "raw-tag2";
+	raw.tag_len = strlen(raw.tag)+1;
+	raw.message = "A second raw log message.";
+	raw.message_len = strlen(raw.message)+1;
+
+	ret = ulog_raw_log(fd, &raw);
+	if (ret < 0) {
+		fprintf(stderr, "cannog log raw entry: %s\n", strerror(-ret));
+		goto finish;
+	}
+
+finish:
+	if (fd >= 0)
+		ulog_raw_close(fd);
+}
+
 int main(void)
 {
 	test_levels();
@@ -202,6 +272,7 @@ int main(void)
 	test_threads();
 	test_va();
 	test_custom_write_func();
+	test_raw_mode();
 
 	return 0;
 }

@@ -75,6 +75,29 @@ size_t ulogger_offset(struct ulogger_log *log, size_t n)
 	return n & (log->size-1);
 }
 
+/* extract pointer from private data */
+static inline void *file_get_private_ptr(struct file *file)
+{
+	return (void *)(((unsigned long)file->private_data) & ~1UL);
+}
+
+/* extract flag from private data */
+static inline int file_get_private_flag(struct file *file)
+{
+	return (int)(((unsigned long)file->private_data) & 1UL);
+}
+
+/* hack: we use a tagged pointer to store a writer flag */
+static void file_set_private_data(struct file *file, void *ptr, int flag)
+{
+	file->private_data = (void *)(((unsigned long)ptr)|(flag ? 1UL : 0UL));
+}
+
+static void file_set_private_flag(struct file *file, int flag)
+{
+	unsigned long ptr = (unsigned long)file_get_private_ptr(file);
+	file->private_data = (void *)(ptr|(flag ? 1UL : 0UL));
+}
 
 /*
  * file_get_log - Given a file structure, return the associated log
@@ -93,10 +116,10 @@ size_t ulogger_offset(struct ulogger_log *log, size_t n)
 static inline struct ulogger_log *file_get_log(struct file *file)
 {
 	if (file->f_mode & FMODE_READ) {
-		struct ulogger_reader *reader = file->private_data;
+		struct ulogger_reader *reader = file_get_private_ptr(file);
 		return reader->log;
 	} else
-		return file->private_data;
+		return file_get_private_ptr(file);
 }
 
 /*
@@ -319,7 +342,7 @@ static size_t get_next_entry_by_uid(struct ulogger_log *log,
 static ssize_t ulogger_read(struct file *file, char __user *buf,
 			   size_t count, loff_t *pos)
 {
-	struct ulogger_reader *reader = file->private_data;
+	struct ulogger_reader *reader = file_get_private_ptr(file);
 	struct ulogger_log *log = reader->log;
 	ssize_t ret;
 	DEFINE_WAIT(wait);
@@ -532,39 +555,54 @@ ssize_t ulogger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	size_t orig;
 	struct ulogger_entry header;
 	struct timespec now;
-	ssize_t ret = 0, prefix;
+	ssize_t ret = 0;
 	const size_t commlen = sizeof(current->comm);
+	const size_t prefix = sizeof(header.len) + sizeof(header.hdr_size);
 	char tcomm[commlen+4];
 	char pcomm[commlen+4];
-	size_t tlen, plen;
+	size_t size, tlen, plen, len = ulogger_kiocb_left(iocb);
+	const bool rawmode = file_get_private_flag(iocb->ki_filp);
 
-	now = current_kernel_time();
-
-	header.pid = current->tgid;
-	header.tid = current->pid;
-
-	/* retrieve process (thread group leader) and thread names */
-	memcpy(pcomm, current->group_leader->comm, commlen);
-	pcomm[commlen] = '\0';
-	plen = strlen(pcomm)+1;
-	if (header.pid != header.tid) {
-		memcpy(tcomm, current->comm, commlen);
-		tcomm[commlen] = '\0';
-		tlen = strlen(tcomm)+1;
+	if (rawmode) {
+		if (len < (sizeof(struct ulogger_entry) - prefix))
+			return -EINVAL;
+		/* user payload must contain a partial ulogger_entry */
+		len -= sizeof(struct ulogger_entry) - prefix;
+		header.len = min_t(size_t, len, ULOGGER_ENTRY_MAX_PAYLOAD);
 	} else {
-		tlen = 0;
+
+		now = current_kernel_time();
+
+		header.pid = current->tgid;
+		header.tid = current->pid;
+
+		/* retrieve process (thread group leader) and thread names */
+		memcpy(pcomm, current->group_leader->comm, commlen);
+		pcomm[commlen] = '\0';
+		plen = strlen(pcomm)+1;
+		if (header.pid != header.tid) {
+			memcpy(tcomm, current->comm, commlen);
+			tcomm[commlen] = '\0';
+			tlen = strlen(tcomm)+1;
+		} else {
+			tlen = 0;
+		}
+
+		header.sec = now.tv_sec;
+		header.nsec = now.tv_nsec;
+		header.euid = current_euid();
+		header.len = min_t(size_t, plen + tlen + len,
+				   ULOGGER_ENTRY_MAX_PAYLOAD);
 	}
 
-	header.sec = now.tv_sec;
-	header.nsec = now.tv_nsec;
-	header.euid = current_euid();
-	header.len = min_t(size_t, plen + tlen + ulogger_kiocb_left(iocb),
-			   ULOGGER_ENTRY_MAX_PAYLOAD);
 	header.hdr_size = sizeof(struct ulogger_entry);
 
 	/* null writes succeed, return zero */
 	if (unlikely(!header.len))
 		return 0;
+
+	/* the amount of bytes we need to write now */
+	size = sizeof(struct ulogger_entry) + header.len;
 
 	mutex_lock(&log->mutex);
 
@@ -576,17 +614,23 @@ ssize_t ulogger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	 * because if we partially fail, we can end up with clobbered log
 	 * entries that encroach on readable buffer.
 	 */
-	fix_up_readers(log, sizeof(struct ulogger_entry) + header.len);
+	fix_up_readers(log, size);
 
-	do_write_log(log, &header, sizeof(struct ulogger_entry));
+	if (!rawmode) {
+		do_write_log(log, &header, sizeof(struct ulogger_entry));
+		size -= sizeof(struct ulogger_entry);
 
-	/* append null-terminated process and thread names */
-	do_write_log(log, pcomm, plen);
-	prefix = plen;
-
-	if (tlen) {
-		do_write_log(log, tcomm, tlen);
-		prefix += tlen;
+		/* append null-terminated process and thread names */
+		do_write_log(log, pcomm, plen);
+		size -= plen;
+		if (tlen) {
+			do_write_log(log, tcomm, tlen);
+			size -= tlen;
+		}
+	} else {
+		/* in raw mode, just enforce entry and header size */
+		do_write_log(log, &header, prefix);
+		size -= prefix;
 	}
 
 	while (nr_segs-- > 0) {
@@ -594,7 +638,7 @@ ssize_t ulogger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		ssize_t nr;
 
 		/* figure out how much of this vector we can keep */
-		len = min_t(size_t, iov->iov_len, header.len - ret - prefix);
+		len = min_t(size_t, iov->iov_len, size - ret);
 
 		/* write out this segment's payload */
 		nr = do_write_log_from_user(log, iov->iov_base, len);
@@ -634,8 +678,8 @@ static int ulogger_open(struct inode *inode, struct file *file)
 
 	if (file_private_data_has_miscdevice_pointer()) {
 		/* file->private_data points to our misc struct */
-		log = container_of(file->private_data, struct ulogger_log,
-				   misc);
+		log = container_of(file_get_private_ptr(file),
+				   struct ulogger_log, misc);
 	} else {
 		/* slower version for older kernels, requires mutex locking */
 		log = get_log_from_minor(MINOR(inode->i_rdev));
@@ -663,9 +707,9 @@ static int ulogger_open(struct inode *inode, struct file *file)
 		list_add_tail(&reader->list, &log->readers);
 		mutex_unlock(&log->mutex);
 
-		file->private_data = reader;
+		file_set_private_data(file, reader, 0);
 	} else
-		file->private_data = log;
+		file_set_private_data(file, log, 0);
 
 	return 0;
 }
@@ -678,7 +722,7 @@ static int ulogger_open(struct inode *inode, struct file *file)
 static int ulogger_release(struct inode *ignored, struct file *file)
 {
 	if (file->f_mode & FMODE_READ) {
-		struct ulogger_reader *reader = file->private_data;
+		struct ulogger_reader *reader = file_get_private_ptr(file);
 		struct ulogger_log *log = reader->log;
 
 		mutex_lock(&log->mutex);
@@ -709,7 +753,7 @@ static unsigned int ulogger_poll(struct file *file, poll_table *wait)
 	if (!(file->f_mode & FMODE_READ))
 		return ret;
 
-	reader = file->private_data;
+	reader = file_get_private_ptr(file);
 	log = reader->log;
 
 	poll_wait(file, &log->wq, wait);
@@ -739,6 +783,19 @@ static long ulogger_set_version(struct ulogger_reader *reader, void __user *arg)
 	return 0;
 }
 
+static long ulogger_set_raw_mode(struct file *file, void __user *arg)
+{
+	int mode;
+	if (copy_from_user(&mode, arg, sizeof(int)))
+		return -EFAULT;
+
+	if ((mode != 0) && (mode != 1))
+		return -EINVAL;
+
+	file_set_private_flag(file, mode);
+	return 0;
+}
+
 static long ulogger_ioctl(struct file *file, unsigned int cmd,
 			  unsigned long arg)
 {
@@ -758,7 +815,7 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 			ret = -EBADF;
 			break;
 		}
-		reader = file->private_data;
+		reader = file_get_private_ptr(file);
 		if (log->w_off >= reader->r_off)
 			ret = log->w_off - reader->r_off;
 		else
@@ -769,7 +826,7 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 			ret = -EBADF;
 			break;
 		}
-		reader = file->private_data;
+		reader = file_get_private_ptr(file);
 
 		if (!reader->r_all)
 			reader->r_off = get_next_entry_by_uid(log,
@@ -799,7 +856,7 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 			ret = -EBADF;
 			break;
 		}
-		reader = file->private_data;
+		reader = file_get_private_ptr(file);
 		ret = reader->r_ver;
 		break;
 	case ULOGGER_SET_VERSION:
@@ -807,8 +864,19 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 			ret = -EBADF;
 			break;
 		}
-		reader = file->private_data;
+		reader = file_get_private_ptr(file);
 		ret = ulogger_set_version(reader, argp);
+		break;
+	case ULOGGER_SET_RAW_MODE:
+		if (!(file->f_mode & FMODE_WRITE)) {
+			ret = -EBADF;
+			break;
+		}
+		if (!capable(CAP_SYS_ADMIN)) {
+			ret = -EPERM;
+			break;
+		}
+		ret = ulogger_set_raw_mode(file, argp);
 		break;
 	}
 

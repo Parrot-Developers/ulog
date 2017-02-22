@@ -67,5 +67,6 @@ struct ulogger_entry {
 #define ULOGGER_FLUSH_LOG		_IO(__ULOGGERIO, 24) /* flush log */
 #define ULOGGER_GET_VERSION		_IO(__ULOGGERIO, 25) /* abi version */
 #define ULOGGER_SET_VERSION		_IO(__ULOGGERIO, 26) /* abi version */
+#define ULOGGER_SET_RAW_MODE		_IO(__ULOGGERIO, 27) /* write raw logs*/
 
 #endif /* _LINUX_ULOGGER_H */

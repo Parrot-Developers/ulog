@@ -7,7 +7,8 @@ LOCAL_CATEGORY_PATH := libs
 LOCAL_PBUILD_ALLOW_FORCE_STATIC := 1
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_CFLAGS := -fvisibility=hidden
-LOCAL_SRC_FILES := ulog_write.c ulog_read.c ulog.cpp ulog_write_android.c
+LOCAL_SRC_FILES := ulog_write.c ulog_read.c ulog.cpp ulog_write_android.c \
+		ulog_write_raw.c
 ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
 ifdef USE_ALCHEMY_ANDROID_SDK
 LOCAL_LIBRARIES += liblog libstlport

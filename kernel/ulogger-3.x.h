@@ -78,6 +78,7 @@ struct ulogger_entry {
 #define ULOGGER_FLUSH_LOG		_IO(__ULOGGERIO, 24) /* flush log */
 #define ULOGGER_GET_VERSION		_IO(__ULOGGERIO, 25) /* abi version */
 #define ULOGGER_SET_VERSION		_IO(__ULOGGERIO, 26) /* abi version */
+#define ULOGGER_SET_RAW_MODE		_IO(__ULOGGERIO, 27) /* write raw logs*/
 
 /* Can we take advantage of misc_open() setting a pointer to our device ? */
 static inline int file_private_data_has_miscdevice_pointer(void)
