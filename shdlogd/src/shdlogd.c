@@ -6,10 +6,11 @@
 #include <signal.h>
 #include <libpomp.h>
 #include <getopt.h>
+#include <futils/timetools.h>
+#include <ulograw.h>
+#include <ulog_shd.h>
 #define SHD_ADVANCED_READ_API
 #include <libshdata.h>
-#include <ulog_shd.h>
-#include <futils/timetools.h>
 
 #define ULOG_TAG shdlogd
 #include <ulog.h>
@@ -17,15 +18,20 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #define SHDLOGD_DEFAULT_PERIOD_MS 50
 #define SHDLOGD_DEFAULT_SECTION_NAME "ulog"
+#define SHDLOGD_DEFAULT_DEVICE_NAME NULL
+#define SHDLOGD_THREADX_PROCESS_NAME "threadx"
+#define SHDLOGD_THREADX_DEFAULT_PID 0
 
-struct {
+static struct {
 	bool stop;
 	uint32_t period_ms;
 	char *section;
+	char *device;
 	unsigned short int index;
 	struct pomp_loop *loop;
 	struct pomp_timer *timer;
-	struct ulog_cookie cookie;
+	int ulogfd;
+	struct ulog_raw_entry raw;
 	struct {
 		struct shd_ctx *ctx;
 		struct shd_revision *rev;
@@ -35,11 +41,18 @@ struct {
 	.stop = false,
 	.period_ms = SHDLOGD_DEFAULT_PERIOD_MS,
 	.section = SHDLOGD_DEFAULT_SECTION_NAME,
+	.device = SHDLOGD_DEFAULT_DEVICE_NAME,
 	.index = 0,
 	.loop = NULL,
 	.timer = NULL,
-	.cookie = {
-		.level = ULOG_DEBUG
+	.ulogfd = -1,
+	.raw = {
+		.entry = {
+			.pid = SHDLOGD_THREADX_DEFAULT_PID,
+			.tid = SHDLOGD_THREADX_DEFAULT_PID,
+		},
+		.pname = SHDLOGD_THREADX_PROCESS_NAME,
+		.pname_len = sizeof(SHDLOGD_THREADX_PROCESS_NAME),
 	},
 	.shd = {
 		.ctx = NULL,
@@ -52,7 +65,7 @@ struct {
 	}
 };
 
-const uint32_t shdcolor[] = {
+static const uint32_t shdcolor[] = {
 	0x000000,	/* black	*/
 	0xFF0000,	/* red		*/
 	0x00FF00,	/* green	*/
@@ -100,10 +113,8 @@ static int read_samples()
 	struct ulog_shd_blob blobs[ULOG_SHD_NB_SAMPLES];
 	struct shd_sample_metadata *metadata = NULL;
 	struct shd_search_result result;
-	int ret, i, l;
-	uint32_t prio;
+	int ret, i;
 	short int d;
-	char *p;
 
 	ret = shd_select_samples(ctx.shd.ctx, &ctx.shd.search, &metadata,
 					&result);
@@ -124,7 +135,20 @@ static int read_samples()
 		return ret;
 	}
 
-	/* add 1 ns to the current sample timestamp to get the next ones */
+	/* Send samples to ulog */
+	for (i = 0; i < result.nb_matches; i++) {
+
+		fill_raw_entry(&ctx.raw, &blobs[i], &metadata[i].ts);
+		ret = ulog_raw_log(ctx.ulogfd, &ctx.raw);
+
+		/* check index vs previous index */
+		d = blobs[i].index - ctx.index;
+		if (d != 1)
+			ULOGE("%d shared memory log messages lost", d - 1);
+		ctx.index = blobs[i].index;
+	}
+
+	/* add 1ns to the last received sample timestamp to get the next ones */
 	time_timespec_add_ns(&metadata[result.nb_matches - 1].ts, 1,
 							&ctx.shd.search.date);
 
@@ -136,36 +160,6 @@ static int read_samples()
 		return ret;
 	}
 
-	/* Send samples to ulog */
-	for (i = 0; i < result.nb_matches; i++) {
-		ctx.cookie.name = blobs[i].tag;
-		ctx.cookie.namesize = blobs[i].tagsize;
-
-		/* Some logs may start with an escape character to add
-		 * a color information in the form '\033[0;3#m'.
-		 * 7 characters are then removed from the log and
-		 * character log[5] is used to identify the color (between 0
-		 * and 7) according to the array shdcolor. */
-		if (blobs[i].log[0] == '\033' && (blobs[i].logsize >= 7)) {
-			p = blobs[i].log + 7;
-			l = blobs[i].logsize - 7;
-			prio = blobs[i].prio |
-				(shdcolor[(blobs[i].log[5] - 0x30) & 0x7] <<
-					ULOG_PRIO_COLOR_SHIFT);
-		} else {
-			p = blobs[i].log;
-			l = blobs[i].logsize;
-			prio = blobs[i].prio;
-		}
-
-		ulog_log_buf(prio, &ctx.cookie, p, l);
-
-		/* check index vs previous index */
-		d = blobs[i].index - ctx.index;
-		if (d != 1)
-			ULOGE("%d shared memory log messages lost", d - 1);
-		ctx.index = blobs[i].index;
-	}
 
 	return 0;
 }
@@ -183,15 +177,14 @@ static void on_signal(int signum)
 
 static void usage(void)
 {
-	printf("usage: shdlogd [-h] [-p PERIOD] [-s NAME]\n"
+	printf("usage: shdlogd [-h] [-p PERIOD] [-s NAME] [-d NAME]\n"
 		"Retrieve logs from the shared memory and log them with ulog.\n"
 		"\n"
 		"  -h, --help           print this help message\n"
 		"  -p, --period  PERIOD polling period in milliseconds (default %dms)\n"
 		"  -s, --section NAME   name of the section in shared memory (default %s)\n"
+		"  -d, --device  NAME   name of the ulogger device\n"
 		"\n", SHDLOGD_DEFAULT_PERIOD_MS, SHDLOGD_DEFAULT_SECTION_NAME);
-
-	return EXIT_FAILURE;
 }
 
 static bool parse_opts(int argc, char *argv[])
@@ -202,18 +195,22 @@ static bool parse_opts(int argc, char *argv[])
 		static const struct option lopts[] = {
 			{ "period",  1, 0, 'p' },
 			{ "section", 1, 0, 's' },
+			{ "device",  1, 0, 'd' },
 			{ "help",    0, 0, 'h' },
 			{ NULL, 0, 0, 0 }
 		};
 		int c;
 
-		c = getopt_long(argc, argv, "s:p:h", lopts, NULL);
+		c = getopt_long(argc, argv, "s:p:d:h", lopts, NULL);
 		if (c == -1)
 			break;
 
 		switch (c) {
 		case 's':
 			ctx.section = optarg;
+			break;
+		case 'd':
+			ctx.device = optarg;
 			break;
 		case 'p':
 			ctx.period_ms = atoi(optarg);
@@ -259,6 +256,14 @@ int main(int argc, char **argv)
 		goto finish;
 	}
 
+	ret = ulog_raw_open(ctx.device);
+	if (ret < 0) {
+		ULOGE("can't open ulogger device in raw mode: %s",
+								strerror(-ret));
+		goto finish;
+	}
+	ctx.ulogfd = ret;
+
 	ctx.shd.ctx = shd_open(ctx.section, NULL, &ctx.shd.rev);
 	if (!ctx.shd.ctx) {
 		ULOGE("can't open shdata context for section %s", ctx.section);
@@ -286,6 +291,8 @@ int main(int argc, char **argv)
 finish:
 	if (ctx.shd.ctx)
 		shd_close(ctx.shd.ctx, ctx.shd.rev);
+	if (ctx.ulogfd >= 0)
+		ulog_raw_close(ctx.ulogfd);
 	if (ctx.timer)
 		pomp_timer_destroy(ctx.timer);
 	if (ctx.loop)

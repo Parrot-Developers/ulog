@@ -55,8 +55,21 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 	/* Get thread name */
 	/* TODO Get the thread name in ambalog to display it on console ? */
 	TX_THREAD_GET_CURRENT(current_thread);
-	blob.thnsize = snprintf(blob.thn, ULOG_SHD_THN_SIZE,
-				current_thread->tx_thread_name);
+	if (current_thread) {
+		blob.thnsize = snprintf(blob.buf, ULOG_BUF_SIZE, "%s",
+					current_thread->tx_thread_name);
+		if (blob.thnsize < 0)
+			blob.thnsize = 0;
+		else if (blob.thnsize >= ULOG_BUF_SIZE)
+			blob.thnsize = ULOG_BUF_SIZE;
+		else
+			blob.thnsize += 1;
+
+		blob.tid = current_thread->tx_thread_id;
+	} else {
+		blob.thnsize = 0;
+		blob.tid = 0;
+	}
 
 	offset += blob.thnsize;
 	blob.tagsize = min(tagsize, ULOG_BUF_SIZE - offset);
