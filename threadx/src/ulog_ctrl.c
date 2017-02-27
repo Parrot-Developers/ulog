@@ -54,7 +54,7 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 
 	/* Get thread name */
 	/* TODO Get the thread name in ambalog to display it on console ? */
-	TX_THREAD_GET_CURRENT(current_thread);
+	current_thread = tx_thread_identify();
 	if (current_thread) {
 		blob.thnsize = snprintf(blob.buf, ULOG_BUF_SIZE, "%s",
 					current_thread->tx_thread_name);
@@ -65,7 +65,9 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 		else
 			blob.thnsize += 1;
 
-		blob.tid = current_thread->tx_thread_id;
+		/* We have no way to get a relevant thread id for now;
+		 * let's set it to 1 as 0 identify unknown thread name. */
+		blob.tid = 1;
 	} else {
 		blob.thnsize = 0;
 		blob.tid = 0;
