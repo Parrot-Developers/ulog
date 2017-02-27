@@ -1,3 +1,8 @@
+# .rc file for shdlogd service -*- mode:conf -*-
+on init
+    write /sys/devices/virtual/misc/ulog_main/logs "ulog_shdlogd 17"
+
 service shdlogd /usr/bin/shdlogd
-	class main
-	user root
+    setenv ULOG_DEVICE shdlogd
+    class main
+    user root
