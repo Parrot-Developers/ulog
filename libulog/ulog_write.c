@@ -287,12 +287,15 @@ static int parse_level(int c)
 	return level;
 }
 
-static void ulog_init_cookie(struct ulog_cookie *cookie)
+ULOG_EXPORT void ulog_init_cookie(struct ulog_cookie *cookie)
 {
 	char buf[80];
-	int level = -1;
+	int olderrno, level = -1;
 	ulog_cookie_register_func_t cookie_register_hook;
 	const char *prop;
+
+	/* make sure we do not corrupt errno for %m glibc extension */
+	olderrno = errno;
 
 	if (cookie->name[0]) {
 		/* get a tag-specific level */
@@ -337,49 +340,32 @@ static void ulog_init_cookie(struct ulog_cookie *cookie)
 	/* call cookie register hook func */
 	if (cookie_register_hook)
 		cookie_register_hook(cookie);
+
+	errno = olderrno;
 }
 
-static void __ulog_vlog(uint32_t prio, struct ulog_cookie *cookie,
-			const char *fmt, va_list ap)
-	__attribute__ ((format (printf, 3, 0)));
-
-static void __ulog_vlog(uint32_t prio, struct ulog_cookie *cookie,
-			const char *fmt, va_list ap)
+ULOG_EXPORT void ulog_vlog_write(uint32_t prio, struct ulog_cookie *cookie,
+				 const char *fmt, va_list ap)
 {
-	int ret, olderrno;
+	int ret;
 	char buf[ULOG_BUF_SIZE];
 	const int bufsize = (int)sizeof(buf);
 
-	if (cookie->level < 0) {
-		/* make sure we do not corrupt errno for %m glibc extension */
-		olderrno = errno;
-		ulog_init_cookie(cookie);
-		errno = olderrno;
-	}
-
-	if ((int)(prio & ULOG_PRIO_LEVEL_MASK) <= cookie->level) {
-		ret = vsnprintf(buf, bufsize, fmt, ap);
-		if (ret >= bufsize)
-			/* truncated output */
-			ret = bufsize-1;
-		if (ret >= 0)
-			ctrl.writer(prio, cookie, buf, ret+1);
-	}
+	ret = vsnprintf(buf, bufsize, fmt, ap);
+	if (ret >= bufsize)
+		/* truncated output */
+		ret = bufsize-1;
+	if (ret >= 0)
+		ctrl.writer(prio, cookie, buf, ret+1);
 }
 
-ULOG_EXPORT void ulog_vlog(uint32_t prio, struct ulog_cookie *cookie,
-			   const char *fmt, va_list ap)
-{
-	__ulog_vlog(prio, cookie, fmt, ap);
-}
-
-ULOG_EXPORT void ulog_log(uint32_t prio, struct ulog_cookie *cookie,
-			 const char *fmt, ...)
+ULOG_EXPORT void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
+				const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	__ulog_vlog(prio, cookie, fmt, ap);
+	ulog_vlog_write(prio, cookie, fmt, ap);
 	va_end(ap);
 }
 

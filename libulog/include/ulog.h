@@ -289,10 +289,41 @@ struct ulog_cookie {
 
 extern struct ulog_cookie __ulog_default_cookie;
 
-void ulog_log(uint32_t prio, struct ulog_cookie *cookie, const char *fmt, ...)
+#if !defined(UNLIKELY)
+#define UNLIKELY(x)	__builtin_expect(!!(x), 0)
+#endif
+
+void ulog_init_cookie(struct ulog_cookie *cookie);
+void ulog_vlog_write(uint32_t prio, struct ulog_cookie *cookie,
+		     const char *fmt, va_list ap)
+	__attribute__ ((format (printf, 3, 0)));
+
+void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
+		    const char *fmt, ...)
 	__attribute__ ((format (printf, 3, 4)));
-void ulog_vlog(uint32_t prio, struct ulog_cookie *cookie, const char *fmt,
-	       va_list ap) __attribute__ ((format (printf, 3, 0)));
+
+/* force inlining of priority filtering for better performance */
+#define ulog_vlog(_prio, _cookie, _fmt, _ap)				\
+	do {								\
+		uint32_t __p = (_prio);					\
+		struct ulog_cookie *__c = (_cookie);			\
+		if (UNLIKELY(__c->level < 0))				\
+			ulog_init_cookie(__c);				\
+		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <= __c->level)	\
+			ulog_vlog_write(__p, __c, _fmt, _ap);		\
+	} while (0)
+
+/* force inlining of priority filtering for better performance */
+#define ulog_log(_prio, _cookie, ...)					\
+	do {								\
+		uint32_t __p = (_prio);					\
+		struct ulog_cookie *__c = (_cookie);			\
+		if (UNLIKELY(__c->level < 0))				\
+			ulog_init_cookie(__c);				\
+		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <= __c->level)	\
+			ulog_log_write(__p, __c, __VA_ARGS__ );		\
+	} while (0)
+
 void ulog_log_buf(uint32_t prio, struct ulog_cookie *cookie, const void *buf,
 		  int size);
 void ulog_log_str(uint32_t prio, struct ulog_cookie *cookie, const char *str);

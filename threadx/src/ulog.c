@@ -107,12 +107,15 @@ int parse_level(int c)
 	return level;
 }
 
-static void ulog_init_cookie(struct ulog_cookie *cookie)
+ULOG_EXPORT void ulog_init_cookie(struct ulog_cookie *cookie)
 {
-	int level = -1;
+	int olderrno, level = -1;
 
 	if (!ctrl.ulog_ready)
 		return;
+
+	/* make sure we do not corrupt errno for %m glibc extension */
+	olderrno = errno;
 
 	if (cookie->name[0]) {
 		/* get a tag-specific level */
@@ -142,6 +145,8 @@ static void ulog_init_cookie(struct ulog_cookie *cookie)
 	}
 
 	(void)AmbaKAL_MutexGive(&ctrl.lock);
+
+	errno = olderrno;
 }
 
 #ifndef CONFIG_PARROT_LINUXLOG
@@ -176,42 +181,22 @@ static void AmbaLog(int prio, const char *tag, int tagsize, const char *fmt,
 }
 #endif
 
-static void __ulog_vlog(uint32_t prio, struct ulog_cookie *cookie,
-			const char *fmt, va_list ap)
-{
-	int olderrno;
-
-	/* make sure we do not corrupt errno for %m glibc extension */
-	olderrno = errno;
-
-	if (cookie->level < 0)
-		ulog_init_cookie(cookie);
-
-	if ((int)(prio & ULOG_PRIO_LEVEL_MASK) <= cookie->level)
-		AmbaLog(prio, cookie->name, cookie->namesize, fmt, ap);
-
-	errno = olderrno;
-}
-
-ULOG_EXPORT void ulog_vlog(uint32_t prio, struct ulog_cookie *cookie,
-			   const char *fmt, va_list ap)
+ULOG_EXPORT void ulog_vlog_write(uint32_t prio, struct ulog_cookie *cookie,
+				 const char *fmt, va_list ap)
 {
 	if (!ctrl.ulog_ready)
 		return;
 
-	__ulog_vlog(prio, cookie, fmt, ap);
+	AmbaLog(prio, cookie->name, cookie->namesize, fmt, ap);
 }
 
-ULOG_EXPORT void ulog_log(uint32_t prio, struct ulog_cookie *cookie,
-			 const char *fmt, ...)
+ULOG_EXPORT void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
+				const char *fmt, ...)
 {
 	va_list ap;
 
-	if (!ctrl.ulog_ready)
-		return;
-
 	va_start(ap, fmt);
-	__ulog_vlog(prio, cookie, fmt, ap);
+	ulog_vlog_write(prio, cookie, fmt, ap);
 	va_end(ap);
 }
 
