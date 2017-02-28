@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 #include <inttypes.h>
 #include <errno.h>
@@ -111,6 +112,7 @@ static void fill_raw_entry(struct ulog_raw_entry *raw,
 static int read_samples()
 {
 	struct ulog_shd_blob blobs[ULOG_SHD_NB_SAMPLES];
+	struct timespec ts[ULOG_SHD_NB_SAMPLES];
 	struct shd_sample_metadata *metadata = NULL;
 	struct shd_search_result result;
 	int ret, i;
@@ -119,47 +121,49 @@ static int read_samples()
 	ret = shd_select_samples(ctx.shd.ctx, &ctx.shd.search, &metadata,
 					&result);
 	if (ret < 0) {
-		if (ret != -ENOENT && ret != -EAGAIN) {
+		if (ret != -ENOENT && ret != -EAGAIN)
 			ULOGE("shd_select_samples failed: %s", strerror(-ret));
-			ctx.stop = true;
-		}
 		return ret;
 	}
+
+	/* Save timestamps */
+	for (i = 0; i < result.nb_matches; i++)
+		ts[i] = metadata[i].ts;
 
 	/* Read samples */
 	ret = shd_read_quantity(ctx.shd.ctx, NULL, blobs, sizeof(blobs));
-	if (ret < 0) {
+	if (ret < 0)
 		ULOGE("shd read samples failed: %s", strerror(-ret));
-		if (shd_end_read(ctx.shd.ctx, ctx.shd.rev) == -ENODEV)
-			ctx.stop = true;
-		return ret;
-	}
-
-	/* Send samples to ulog */
-	for (i = 0; i < result.nb_matches; i++) {
-
-		fill_raw_entry(&ctx.raw, &blobs[i], &metadata[i].ts);
-		ret = ulog_raw_log(ctx.ulogfd, &ctx.raw);
-
-		/* check index vs previous index */
-		d = blobs[i].index - ctx.index;
-		if (d != 1)
-			ULOGE("%d shared memory log messages lost", d - 1);
-		ctx.index = blobs[i].index;
-	}
-
-	/* add 1ns to the last received sample timestamp to get the next ones */
-	time_timespec_add_ns(&metadata[result.nb_matches - 1].ts, 1,
-							&ctx.shd.search.date);
 
 	ret = shd_end_read(ctx.shd.ctx, ctx.shd.rev);
 	if (ret < 0) {
 		ULOGE("shd end_read failed: %s", strerror(-ret));
 		if (ret == -ENODEV)
 			ctx.stop = true;
-		return ret;
 	}
 
+	if (ret < 0)
+		return ret;
+
+	/* Send samples to ulog */
+	for (i = 0; i < result.nb_matches; i++) {
+
+		fill_raw_entry(&ctx.raw, &blobs[i], &ts[i]);
+		ret = ulog_raw_log(ctx.ulogfd, &ctx.raw);
+
+		/* check index vs previous index */
+		d = blobs[i].index - ctx.index - 1;
+		if (d > 0)
+			ULOGE("%d shared memory log messages lost", d);
+		else if (d < 0)
+			ULOGE("many shared memory log messages lost");
+
+		ctx.index = blobs[i].index;
+	}
+
+	/* add 1ns to the last received sample timestamp to get the next ones */
+	time_timespec_add_ns(&ts[result.nb_matches - 1], 1,
+							&ctx.shd.search.date);
 
 	return 0;
 }
@@ -272,9 +276,12 @@ int main(int argc, char **argv)
 	}
 
 	/* Read oldest sample to get a timestamp reference */
-	ret = read_samples();
-	if (ret < 0)
-		goto finish;
+	do {
+		ret = read_samples();
+		if (ctx.stop)
+			goto finish;
+		usleep(1000);
+	} while (ret);
 
 	/* change search method */
 	ctx.shd.search.method = SHD_FIRST_AFTER;
