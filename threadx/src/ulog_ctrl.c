@@ -95,24 +95,6 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 	ctrl.shd_enabled = true;
 }
 
-char ulog_prio2char(int prio)
-{
-	static const char priotab[8] = {
-		[0]           = ' ',
-		[1]           = ' ',
-		[ULOG_CRIT]   = 'C',
-		[ULOG_ERR]    = 'E',
-		[ULOG_WARN]   = 'W',
-		[ULOG_NOTICE] = 'N',
-		[ULOG_INFO]   = 'I',
-		[ULOG_DEBUG]  = 'D'
-	};
-
-	if (prio > ULOG_DEBUG)
-		return ' ';
-
-	return priotab[prio];
-}
 
 void ulog_shd_init(void)
 {
