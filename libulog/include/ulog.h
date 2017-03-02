@@ -321,7 +321,7 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 		if (UNLIKELY(__c->level < 0))				\
 			ulog_init_cookie(__c);				\
 		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <= __c->level)	\
-			ulog_log_write(__p, __c, __VA_ARGS__ );		\
+			ulog_log_write(__p, __c, __VA_ARGS__);		\
 	} while (0)
 
 void ulog_log_buf(uint32_t prio, struct ulog_cookie *cookie, const void *buf,
