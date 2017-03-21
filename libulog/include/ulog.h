@@ -306,22 +306,26 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 #define ulog_vlog(_prio, _cookie, _fmt, _ap)				\
 	do {								\
 		uint32_t __p = (_prio);					\
-		struct ulog_cookie *__c = (_cookie);			\
-		if (UNLIKELY(__c->level < 0))				\
-			ulog_init_cookie(__c);				\
-		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <= __c->level)	\
-			ulog_vlog_write(__p, __c, _fmt, _ap);		\
+		if (UNLIKELY((_cookie)->level < 0))			\
+			ulog_init_cookie((_cookie));			\
+		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <=		\
+				(_cookie)->level)			\
+			ulog_vlog_write(__p, (_cookie), _fmt, _ap);	\
 	} while (0)
 
-/* force inlining of priority filtering for better performance */
+/* force inlining of priority filtering for better performance
+ * Note: gcc will not inline the code if it is in a function because of the
+ *       variable number of arguments.
+ * Note: the _cookie is evaluated several times. Putting it in a local variable
+ *       causes misleading messages depending on gcc version used */
 #define ulog_log(_prio, _cookie, ...)					\
 	do {								\
 		uint32_t __p = (_prio);					\
-		struct ulog_cookie *__c = (_cookie);			\
-		if (UNLIKELY(__c->level < 0))				\
-			ulog_init_cookie(__c);				\
-		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <= __c->level)	\
-			ulog_log_write(__p, __c, __VA_ARGS__);		\
+		if (UNLIKELY((_cookie)->level < 0))			\
+			ulog_init_cookie((_cookie));			\
+		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <=		\
+				(_cookie)->level)			\
+			ulog_log_write(__p, (_cookie), __VA_ARGS__);	\
 	} while (0)
 
 void ulog_log_buf(uint32_t prio, struct ulog_cookie *cookie, const void *buf,
