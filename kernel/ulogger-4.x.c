@@ -47,7 +47,7 @@ struct ulogger_log {
 	struct miscdevice	misc;	/* misc device representing the log */
 	wait_queue_head_t	wq;	/* wait queue for readers */
 	struct list_head	readers; /* this log's readers */
-	struct mutex		mutex;	/* mutex protecting buffer */
+	struct rt_mutex		mutex;	/* mutex protecting buffer */
 	size_t			w_off;	/* current write head offset */
 	size_t			head;	/* new readers start here */
 	size_t			size;	/* size of the log */
@@ -349,12 +349,12 @@ static ssize_t ulogger_read(struct file *file, char __user *buf,
 
 start:
 	while (1) {
-		mutex_lock(&log->mutex);
+		rt_mutex_lock(&log->mutex);
 
 		prepare_to_wait(&log->wq, &wait, TASK_INTERRUPTIBLE);
 
 		ret = (log->w_off == reader->r_off);
-		mutex_unlock(&log->mutex);
+		rt_mutex_unlock(&log->mutex);
 		if (!ret)
 			break;
 
@@ -375,7 +375,7 @@ start:
 	if (ret)
 		return ret;
 
-	mutex_lock(&log->mutex);
+	rt_mutex_lock(&log->mutex);
 
 	if (!reader->r_all)
 		reader->r_off = get_next_entry_by_uid(log,
@@ -383,7 +383,7 @@ start:
 
 	/* is there still something to read or did we race? */
 	if (unlikely(log->w_off == reader->r_off)) {
-		mutex_unlock(&log->mutex);
+		rt_mutex_unlock(&log->mutex);
 		goto start;
 	}
 
@@ -408,7 +408,7 @@ start:
 	ret = do_read_log_to_user(log, reader, buf, ret);
 
 out:
-	mutex_unlock(&log->mutex);
+	rt_mutex_unlock(&log->mutex);
 
 	return ret;
 }
@@ -605,7 +605,7 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	/* the amount of bytes we need to write now */
 	size = sizeof(struct ulogger_entry) + header.len;
 
-	mutex_lock(&log->mutex);
+	rt_mutex_lock(&log->mutex);
 
 	orig = log->w_off;
 
@@ -645,14 +645,14 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		nr = do_write_log_from_user(log, iov.iov_base, len);
 		if (unlikely(nr < 0)) {
 			log->w_off = orig;
-			mutex_unlock(&log->mutex);
+			rt_mutex_unlock(&log->mutex);
 			return nr;
 		}
 
 		ret += nr;
 	}
 
-	mutex_unlock(&log->mutex);
+	rt_mutex_unlock(&log->mutex);
 
 	/* wake up any blocked readers */
 	wake_up_interruptible(&log->wq);
@@ -692,11 +692,11 @@ static int ulogger_open(struct inode *inode, struct file *file)
 
 		INIT_LIST_HEAD(&reader->list);
 
-		mutex_lock(&log->mutex);
+		rt_mutex_lock(&log->mutex);
 		reader->r_off = log->head;
 		reader->r_dropped = log->dropped;
 		list_add_tail(&reader->list, &log->readers);
-		mutex_unlock(&log->mutex);
+		rt_mutex_unlock(&log->mutex);
 		file_set_private_data(file, reader, 0);
 	} else
 		file_set_private_data(file, log, 0);
@@ -715,9 +715,9 @@ static int ulogger_release(struct inode *ignored, struct file *file)
 		struct ulogger_reader *reader = file_get_private_ptr(file);
 		struct ulogger_log *log = reader->log;
 
-		mutex_lock(&log->mutex);
+		rt_mutex_lock(&log->mutex);
 		list_del(&reader->list);
-		mutex_unlock(&log->mutex);
+		rt_mutex_unlock(&log->mutex);
 
 		kfree(reader);
 	}
@@ -748,14 +748,14 @@ static unsigned int ulogger_poll(struct file *file, poll_table *wait)
 
 	poll_wait(file, &log->wq, wait);
 
-	mutex_lock(&log->mutex);
+	rt_mutex_lock(&log->mutex);
 	if (!reader->r_all)
 		reader->r_off = get_next_entry_by_uid(log,
 			reader->r_off, current_euid());
 
 	if (log->w_off != reader->r_off)
 		ret |= POLLIN | POLLRDNORM;
-	mutex_unlock(&log->mutex);
+	rt_mutex_unlock(&log->mutex);
 
 	return ret;
 }
@@ -794,7 +794,7 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 	long ret = -EINVAL;
 	void __user *argp = (void __user *) arg;
 
-	mutex_lock(&log->mutex);
+	rt_mutex_lock(&log->mutex);
 
 	switch (cmd) {
 	case ULOGGER_GET_LOG_BUF_SIZE:
@@ -870,7 +870,7 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	mutex_unlock(&log->mutex);
+	rt_mutex_unlock(&log->mutex);
 
 	return ret;
 }
@@ -904,7 +904,7 @@ static struct ulogger_log VAR = { \
 	}, \
 	.wq = __WAIT_QUEUE_HEAD_INITIALIZER(VAR .wq), \
 	.readers = LIST_HEAD_INIT(VAR .readers), \
-	.mutex = __MUTEX_INITIALIZER(VAR .mutex), \
+	.mutex = __RT_MUTEX_INITIALIZER(VAR .mutex), \
 	.w_off = 0, \
 	.head = 0, \
 	.dropped = 0, \
@@ -1018,7 +1018,7 @@ static ssize_t ulogger_add_log(struct device *dev,
 	log->buffer = buffer;
 	init_waitqueue_head(&log->wq);
 	INIT_LIST_HEAD(&log->readers);
-	mutex_init(&log->mutex);
+	rt_mutex_init(&log->mutex);
 
 	/* find a slot for this log device */
 	slot = -1;
@@ -1075,7 +1075,7 @@ static void delete_log(struct ulogger_log *current_log)
 	misc_deregister(&current_log->misc);
 	vfree(current_log->buffer);
 	kfree(current_log->misc.name);
-	mutex_destroy(&current_log->mutex);
+	rt_mutex_destroy(&current_log->mutex);
 	kfree(current_log);
 }
 
