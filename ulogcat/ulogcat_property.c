@@ -21,7 +21,7 @@
 
 #include "ulogcat.h"
 
-#if defined(ANDROID)
+#if defined(ANDROID) && !defined(ANDROID_NDK)
 
 #include <cutils/properties.h>
 
