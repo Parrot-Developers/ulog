@@ -19,13 +19,23 @@
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
-#include <sys/prctl.h>
 #include <sys/time.h>
 #include <pthread.h>
 
 #define  ULOG_TAG pulsarsoca
 #include "ulog.h"
 #include "ulograw.h"
+
+#ifdef __linux__
+#include <sys/prctl.h>
+static void set_thread_name(const char *name)
+{
+	(void)prctl(PR_SET_NAME, (unsigned long)name, 0, 0, 0);
+}
+#else
+static void set_thread_name(const char *name) {}
+#endif /* __linux__ */
+
 
 ULOG_DECLARE_TAG(pulsarsoca);
 ULOG_DECLARE_TAG(My_Program);
@@ -142,7 +152,7 @@ static void test_threads(void)
 		int id = (int)(intptr_t)arg;
 		char name[16];
 		snprintf(name, sizeof(name), "test_thread_%d", id);
-		(void)prctl(PR_SET_NAME, (unsigned long)name, 0, 0, 0);
+		set_thread_name(name);
 		ULOGI("message from thread #%d", id);
 		return NULL;
 	}
