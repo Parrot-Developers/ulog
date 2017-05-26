@@ -142,23 +142,26 @@ static void test_color(void)
 		 "This tag has color #%06x", color);
 }
 
+static void *thread_routine(void *arg)
+{
+	int id = (int)(intptr_t)arg;
+	char name[16];
+
+	snprintf(name, sizeof(name), "test_thread_%d", id);
+	set_thread_name(name);
+	ULOGI("message from thread #%d", id);
+
+	return NULL;
+}
+
 static void test_threads(void)
 {
 	int i, ret;
 #define NUM_THREADS 12
 	pthread_t tid[NUM_THREADS];
-	void *routine(void *arg)
-	{
-		int id = (int)(intptr_t)arg;
-		char name[16];
-		snprintf(name, sizeof(name), "test_thread_%d", id);
-		set_thread_name(name);
-		ULOGI("message from thread #%d", id);
-		return NULL;
-	}
 
 	for (i = 0; i < NUM_THREADS; i++) {
-		ret = pthread_create(&tid[i], NULL, &routine,
+		ret = pthread_create(&tid[i], NULL, &thread_routine,
 				     (void *)(intptr_t)i);
 		assert(ret == 0);
 	}
