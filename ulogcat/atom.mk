@@ -1,5 +1,7 @@
 LOCAL_PATH := $(call my-dir)
 
+ifeq ("$(TARGET_OS)","linux")
+
 # libulogcat
 include $(CLEAR_VARS)
 LOCAL_MODULE := libulogcat
@@ -55,4 +57,6 @@ LOCAL_MODULE := tst-libulogcat
 LOCAL_SRC_FILES := tests/libulogcat_test.c
 LOCAL_LIBRARIES := libulogcat libulog
 include $(BUILD_EXECUTABLE)
+endif
+
 endif

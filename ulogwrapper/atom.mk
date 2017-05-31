@@ -1,5 +1,7 @@
 LOCAL_PATH := $(call my-dir)
 
+ifeq ("$(TARGET_OS)","linux")
+
 include $(CLEAR_VARS)
 LOCAL_MODULE := libulog_syslogwrap
 LOCAL_DESCRIPTION := A small wrapper library for redirecting syslog to ulog
@@ -20,3 +22,5 @@ LOCAL_DEPENDS_HEADERS := libulog
 LOCAL_REQUIRED_MODULES := libulog_syslogwrap
 
 include $(BUILD_EXECUTABLE)
+
+endif

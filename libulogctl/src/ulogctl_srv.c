@@ -24,8 +24,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/un.h>
-#include <sys/prctl.h>
 #include <stdio.h>
+
+#ifdef __linux__
+#  include <sys/prctl.h>
+#endif
 
 #include <ulogctl.h>
 #include "ulogctl_priv.h"
