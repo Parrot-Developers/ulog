@@ -110,7 +110,7 @@ void ulog_shd_init(void)
 
 	ctrl.shd = shd_create("ulog", NULL, &header, &meta);
 	if (ctrl.shd == NULL) {
-		AmbaPrint("failed to create section ulog in shdata");
+		AmbaPrintColor(RED, "failed to create section ulog in shdata");
 		return;
 	}
 

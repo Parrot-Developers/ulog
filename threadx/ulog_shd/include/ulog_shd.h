@@ -2,6 +2,7 @@
 #define __ULOG_SHD_H__
 
 #include <ulog.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -11,12 +12,12 @@ extern "C" {
 
 /* make sure the structure size is multiple of int size */
 struct ulog_shd_blob {
-	unsigned short int index;	/* ulog message index */
-	unsigned char prio;		/* Priority level */
-	unsigned long int tid;		/* thread id */
-	int thnsize;			/* Thread name size */
-	int tagsize;			/* tag name size */
-	int logsize;			/* Log message size */
+	uint16_t index;			/* ulog message index */
+	uint8_t prio;			/* Priority level */
+	uint32_t tid;			/* thread id */
+	int32_t thnsize;		/* Thread name size */
+	int32_t tagsize;		/* tag name size */
+	int32_t logsize;		/* Log message size */
 	char buf[ULOG_BUF_SIZE];	/* buffer for thread/tag/log */
 };
 #ifdef __cplusplus
