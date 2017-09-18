@@ -15,7 +15,15 @@
  * GNU General Public License for more details.
  */
 
+/* YMM-approved ugliness */
+#include <linux/version.h>
+/* codecheck_ignore[LINUX_VERSION_CODE] */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#include <linux/sched/signal.h>
+#include <linux/rtmutex.h>
+#else
 #include <linux/sched.h>
+#endif
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
