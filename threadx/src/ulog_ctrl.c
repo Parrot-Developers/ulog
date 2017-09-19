@@ -16,6 +16,7 @@
  */
 
 #include <stdio.h>
+#include <stdbool.h>
 #include <libshdata.h>
 #include <ulog_shd.h>
 #include "AmbaDataType.h"
