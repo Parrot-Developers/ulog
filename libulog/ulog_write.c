@@ -29,7 +29,6 @@
 #include <fcntl.h>
 #include <pthread.h>
 
-#include <syslog.h>
 #include "ulog.h"
 #include "ulogger.h"
 #include "ulog_common.h"
@@ -69,17 +68,6 @@ static void __writer_null(uint32_t prio __unused,
 			  const char *buf __unused,
 			  int len __unused)
 {
-}
-
-/* syslog writer (used as a fallback when ulogger is not available) */
-static void __writer_syslog(uint32_t prio, struct ulog_cookie *cookie,
-			    const char *buf, int len __unused)
-{
-	if (prio & (1U << ULOG_PRIO_BINARY_SHIFT))
-		/* skip binary data */
-		return;
-
-	syslog(prio & ULOG_PRIO_LEVEL_MASK, "%s: %s", cookie->name, buf);
 }
 
 /* ulogger writer */
@@ -182,14 +170,11 @@ static void __writer_init(uint32_t prio, struct ulog_cookie *cookie,
 			writer = __writer_kernel;
 		else if (ulog_is_android())
 			writer = ulog_writer_android;
-		/* fallback to syslog unless disabled */
-		else if (getenv("ULOG_NOSYSLOG") == NULL)
-			writer = __writer_syslog;
 		else
 			writer = __writer_null;
 
 		/* optionally output a copy of messages to stderr */
-		if (getenv("ULOG_STDERR")) {
+		if (getenv("ULOG_STDERR") || writer == __writer_null) {
 			ctrl.writer2 = writer;
 			writer = __writer_stderr_wrapper;
 			if (getenv("ULOG_STDERR_COLOR"))
