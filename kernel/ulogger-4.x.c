@@ -580,7 +580,7 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		header.len = min_t(size_t, len, ULOGGER_ENTRY_MAX_PAYLOAD);
 	} else {
 
-		now = current_kernel_time();
+		ktime_get_ts(&now);
 
 		header.pid = current->tgid;
 		header.tid = current->pid;
