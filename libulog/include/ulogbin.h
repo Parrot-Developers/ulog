@@ -51,28 +51,32 @@ void ulog_bin_close(int fd);
 /**
  * Log a binary ulog entry. The priority will be set to INFO and always logged
  *
- * @param fd     A descriptor returned by @ulog_bin_open().
- * @param tag    tag associated with the log.
- * @param buf    buffer to write.
- * @param count  size of buffer to write.
- * @return       0 if successful, -errno upon failure.
+ * @param fd      A descriptor returned by @ulog_bin_open().
+ * @param tag     tag associated with the log.
+ * @param tagsize tag length + 1 (so including nul byte).
+ * @param buf     buffer to write.
+ * @param count   size of buffer to write.
+ * @return        0 if successful, -errno upon failure.
  */
 int ulog_bin_write(int fd,
 	const char *tag,
+	size_t tagsize,
 	const void *buf,
 	size_t count);
 
 /**
  * Log a binary ulog entry. The priority will be set to INFO and always logged
  *
- * @param fd     A descriptor returned by @ulog_bin_open().
- * @param tag    tag associated with the log.
- * @param iov    iovec array to write.
- * @param iovcnt number of elements in iovec array.
- * @return       0 if successful, -errno upon failure.
+ * @param fd      A descriptor returned by @ulog_bin_open().
+ * @param tag     tag associated with the log.
+ * @param tagsize tag length + 1 (so including nul byte).
+ * @param iov     iovec array to write.
+ * @param iovcnt  number of elements in iovec array.
+ * @return        0 if successful, -errno upon failure.
  */
 int ulog_bin_writev(int fd,
 	const char *tag,
+	size_t tagsize,
 	const struct iovec *iov,
 	int iovcnt);
 

@@ -76,17 +76,19 @@ ULOG_EXPORT void ulog_bin_close(int fd)
 
 ULOG_EXPORT int ulog_bin_write(int fd,
 	const char *tag,
+	size_t tagsize,
 	const void *buf,
 	size_t count)
 {
 	struct iovec iov[1];
 	iov[0].iov_base = (void *)buf;
 	iov[0].iov_len = count;
-	return ulog_bin_writev(fd, tag, iov, 1);
+	return ulog_bin_writev(fd, tag, tagsize, iov, 1);
 }
 
 ULOG_EXPORT int ulog_bin_writev(int fd,
 	const char *tag,
+	size_t tagsize,
 	const struct iovec *iov,
 	int iovcnt)
 {
@@ -101,7 +103,7 @@ ULOG_EXPORT int ulog_bin_writev(int fd,
 
 	/* tag, must be null-terminated */
 	vec[1].iov_base = (void *)tag;
-	vec[1].iov_len = strlen(tag);
+	vec[1].iov_len = tagsize;
 
 	/* payload: null-terminated string or binary data */
 	for (i = 0; i < iovcnt; i++) {
