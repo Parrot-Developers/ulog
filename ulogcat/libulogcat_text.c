@@ -19,7 +19,7 @@
 
 #include "libulogcat_private.h"
 
-int text_frame_size(void)
+int text_render_size(void)
 {
 	return ULOGGER_ENTRY_MAX_LEN+128;
 }
@@ -27,7 +27,7 @@ int text_frame_size(void)
 static const char *const ansinone = "\e[0m";
 static const char priotab[8] = {' ', ' ', 'C', 'E', 'W', 'N', 'I', 'D'};
 
-void setup_colors(struct ulogcat_context *ctx)
+void setup_colors(struct ulogcat3_context *ctx)
 {
 	int i;
 	char *p, *tmp;
@@ -52,14 +52,13 @@ void setup_colors(struct ulogcat_context *ctx)
 	free(p);
 }
 
-static int print_log_line_csv(struct ulogcat_context *ctx,
-			      const struct log_entry *_entry, char *buf,
+static int print_log_line_csv(const struct frame *frame, char *buf,
 			      size_t bufsize)
 {
 	char *p;
 	int count, len, i;
 	static const char hex[] = "0123456789abcdef";
-	const struct ulog_entry *entry = &_entry->ulog;
+	const struct ulog_entry *entry = &frame->entry;
 
 	/* compute payload length */
 	len = entry->is_binary ? 2*entry->len : (int)strlen(entry->message);
@@ -108,9 +107,8 @@ static int print_log_line_csv(struct ulogcat_context *ctx,
 	return count;
 }
 
-static int print_ulog_line(struct ulogcat_context *ctx,
-			   const struct log_entry *_entry,
-			   const char *message, char *buf, size_t bufsize)
+static int print_ulog_line(const struct frame *frame, const char *message,
+			   char *buf, size_t bufsize)
 {
 	int count;
 	char cprio;
@@ -118,7 +116,8 @@ static int print_ulog_line(struct ulogcat_context *ctx,
 	struct tm *ptm;
 	char tbuf[32], buf2[128];
 	const char *cstart, *cend, *clabel;
-	const struct ulog_entry *entry = &_entry->ulog;
+	const struct ulog_entry *entry = &frame->entry;
+	struct ulogcat3_context *ctx = frame->dev->ctx;
 
 	cprio = priotab[entry->priority];
 	cstart = (ctx->flags & ULOGCAT_FLAG_COLOR) ?
@@ -179,68 +178,8 @@ static int print_ulog_line(struct ulogcat_context *ctx,
 	return count;
 }
 
-static int print_alog_line(struct ulogcat_context *ctx,
-			   const struct log_entry *_entry,
-			   const char *message, char *buf, size_t bufsize)
-{
-	int count;
-	char cprio;
-	struct tm tmBuf;
-	struct tm *ptm;
-	char tbuf[32], buf2[128];
-	const char *cstart, *cend, *clabel;
-	const struct ulog_entry *entry = &_entry->ulog;
-
-	cprio = priotab[entry->priority];
-	cstart = (ctx->flags & ULOGCAT_FLAG_COLOR) ?
-		ctx->ansi_color[entry->priority] : "";
-	cend  = (ctx->flags & ULOGCAT_FLAG_COLOR) ? ansinone : "";
-	clabel = (ctx->flags & ULOGCAT_FLAG_SHOW_LABEL) ? "A " : "";
-
-	switch (ctx->log_format) {
-
-	case ULOGCAT_FORMAT_SHORT:
-		count = snprintf(buf, bufsize, "%s%s%c %-12s: %s%s\n", cstart,
-				 clabel, cprio, entry->tag, message, cend);
-		break;
-
-	default:
-	case ULOGCAT_FORMAT_ALIGNED:
-		snprintf(buf2, sizeof(buf2), "%-12s(%d/%d)",
-			 entry->tag, entry->pid, entry->tid);
-		count = snprintf(buf, bufsize, "%s%s%c %-45s: %s%s\n", cstart,
-				 clabel, cprio, buf2, message, cend);
-		break;
-
-	case ULOGCAT_FORMAT_PROCESS:
-		count = snprintf(buf, bufsize,
-				 "%s%s%c %-12s(%d/%d): %s%s\n", cstart,
-				 clabel, cprio, entry->tag, entry->pid,
-				 entry->tid, message, cend);
-		break;
-
-	case ULOGCAT_FORMAT_LONG:
-		ptm = localtime_r(&(entry->tv_sec), &tmBuf);
-		strftime(tbuf, sizeof(tbuf), "%m-%d %H:%M:%S", ptm);
-		snprintf(buf2, sizeof(buf2), "%-12s(%d/%d)",
-			 entry->tag, entry->pid, entry->tid);
-
-		count = snprintf(buf, bufsize,
-				 "%s%s%s.%03ld %c %-45s: %s%s\n",
-				 cstart, clabel, tbuf, entry->tv_nsec/1000000,
-				 cprio, buf2, message, cend);
-		break;
-	}
-	if (count >= (int)bufsize)
-		/* message has been truncated */
-		count = bufsize;
-
-	return count;
-}
-
-static int print_klog_line(struct ulogcat_context *ctx,
-			   const struct log_entry *_entry,
-			   const char *message, char *buf, size_t bufsize)
+static int print_klog_line(const struct frame *frame, const char *message,
+			   char *buf, size_t bufsize)
 {
 	int count;
 	char cprio;
@@ -248,7 +187,8 @@ static int print_klog_line(struct ulogcat_context *ctx,
 	struct tm *ptm;
 	char tbuf[32];
 	const char *cstart, *cend, *clabel;
-	const struct ulog_entry *entry = &_entry->ulog;
+	const struct ulog_entry *entry = &frame->entry;
+	struct ulogcat3_context *ctx = frame->dev->ctx;
 
 	cprio = priotab[entry->priority];
 	cstart = (ctx->flags & ULOGCAT_FLAG_COLOR) ?
@@ -292,54 +232,53 @@ static int print_klog_line(struct ulogcat_context *ctx,
 	return count;
 }
 
-static int print_log_line(struct ulogcat_context *ctx,
-			  const struct log_entry *_entry,
-			  const char *message, char *buf, size_t bufsize)
+static int print_log_line(const struct frame *frame, const char *message,
+			  char *buf, size_t bufsize)
 {
 	/* some buffers require specific processing */
-	switch (_entry->label) {
+	switch (frame->dev->label) {
 	case 'K':
-		return print_klog_line(ctx, _entry, message, buf, bufsize);
-	case 'A':
-		return print_alog_line(ctx, _entry, message, buf, bufsize);
+		return print_klog_line(frame, message, buf, bufsize);
 	case 'U':
 	default:
-		return print_ulog_line(ctx, _entry, message, buf, bufsize);
+		return print_ulog_line(frame, message, buf, bufsize);
 	}
 	/* should not be reached */
 	return -1;
 }
 
-int render_text_frame(struct ulogcat_context *ctx,
-		      const struct log_entry *entry, struct frame *frame)
+int text_render_frame(struct ulogcat3_context *ctx, struct frame *frame,
+		      int is_banner)
 {
 	int count, size;
 	char *nl, *message, *p;
 
-	size = ctx->render_frame_size;
+	size = ctx->render_size;
 
-	if (frame->is_banner) {
-		count = snprintf((char *)frame->buf, size,
+	if (is_banner) {
+		/* crude banner rendering */
+		count = snprintf((char *)ctx->render_buf, size,
 				 "---------------------------------------%s\n",
-				 entry->ulog.message);
-		frame->size = count;
+				 frame->entry.message);
+		ctx->render_len = count;
 		return (count < 0) ? -1 : 0;
 	}
 
+	/* process CSV format separately */
 	if (ctx->log_format == ULOGCAT_FORMAT_CSV) {
-		count = print_log_line_csv(ctx, entry, (char *)frame->buf,
+		count = print_log_line_csv(frame, (char *)ctx->render_buf,
 					   size);
-		frame->size = count;
+		ctx->render_len = count;
 		return (count < 0) ? -1 : 0;
 	}
 
 	/* drop binary entries */
-	if (entry->ulog.is_binary)
+	if (frame->entry.is_binary)
 		return -1;
 
-	frame->size = 0;
-	p = (char *)frame->buf;
-	message = (char *)entry->ulog.message;
+	ctx->render_len = 0;
+	p = (char *)ctx->render_buf;
+	message = (char *)frame->entry.message;
 
 	/* split lines in message */
 	do {
@@ -347,11 +286,11 @@ int render_text_frame(struct ulogcat_context *ctx,
 		if (nl)
 			*nl = '\0';
 
-		count = print_log_line(ctx, entry, message, p, size);
+		count = print_log_line(frame, message, p, size);
 		if (count < 0)
 			break;
 
-		frame->size += count;
+		ctx->render_len += count;
 		p += count;
 		size -= count;
 
@@ -360,5 +299,5 @@ int render_text_frame(struct ulogcat_context *ctx,
 
 	} while (nl && message[0]);
 
-	return frame->size ? 0 : -1;
+	return ctx->render_len ? 0 : -1;
 }

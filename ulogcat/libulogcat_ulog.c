@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2014 Parrot S.A.
+ * Copyright (C) 2017 Parrot S.A.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,105 +19,121 @@
 
 #include "libulogcat_private.h"
 
-union ulogger_buf {
-	unsigned char        buf[ULOGGER_ENTRY_MAX_LEN+1];
-	struct ulogger_entry entry;
-};
-
-static int ulog_receive_entry(struct log_device *dev, struct ulog_entry *entry)
+/*
+ * Read exactly one ulog entry.
+ *
+ * Returns -1 if an error occured
+ *          0 if we received a signal and need to retry
+ *          1 if we successfully read one entry
+ */
+static int ulog_receive_entry(struct log_device *dev, struct frame *frame)
 {
 	int ret;
-	union ulogger_buf *raw = dev->priv;
+	struct ulogger_entry *raw;
 	const int header_sz = (int)sizeof(struct ulogger_entry);
 
 	/* read exactly one ulogger entry */
-	ret = read(dev->fd, raw->buf, ULOGGER_ENTRY_MAX_LEN);
+	ret = read(dev->fd, frame->buf, frame->bufsize);
+	if ((ret < 0) && (errno == EINVAL) && (frame->buf == frame->data)) {
+		/* regular frame buffer is too small, allocate extra memory */
+		frame->buf = malloc(ULOGGER_ENTRY_MAX_LEN);
+		if (frame->buf == NULL) {
+			set_error(dev->ctx, "malloc: %s", strerror(errno));
+			return -1;
+		}
+		frame->bufsize = ULOGGER_ENTRY_MAX_LEN;
+		/* retry with larger buffer */
+		ret = read(dev->fd, frame->buf, frame->bufsize);
+	}
+
 	if (ret < 0) {
 		if ((errno == EINTR) || (errno == EAGAIN))
 			return 0;
-		set_error(dev->ctx, "read(%s): %s", dev->path,
-			  strerror(errno));
+		set_error(dev->ctx, "read(%s): %s", dev->path, strerror(errno));
 		return -1;
 	} else if (ret == 0) {
 		set_error(dev->ctx, "read(%s): unexpected EOF", dev->path);
 		return -1;
-	} else if (raw->entry.len != ret-header_sz) {
+	}
+
+	/* sanity check */
+	raw = (struct ulogger_entry *)frame->buf;
+	if (raw->len != ret-header_sz) {
 		set_error(dev->ctx, "read(%s): unexpected length %d",
 			  dev->path, ret-header_sz);
 		return -1;
 	}
 
-	/* extract fields from raw entry */
-	ret = ulog_parse_buf(&raw->entry, entry);
-	if (ret < 0) {
-		DEBUG("ulog: dropping invalid message (error %d)\n", ret);
-		return 0;
-	}
+	/* compute timestamp */
+	frame->stamp = raw->sec*1000000ULL + raw->nsec/1000ULL;
+	/* attach frame to device */
+	frame->dev = dev;
+	/* decrement read size except for special "dropped entries" messages */
+	if ((raw->pid != -1) || (raw->tid != -1))
+		dev->mark_readable -= ret;
 
 	return 1;
 }
 
-static int ulog_receive_kmsgd_entry(struct log_device *dev,
-				    struct ulog_entry *entry)
+static int ulog_parse_entry(struct frame *frame)
+{
+	int ret;
+	struct ulogger_entry *raw;
+
+	raw = (struct ulogger_entry *)frame->buf;
+
+	/* extract fields from raw data */
+	ret = ulog_parse_buf(raw, &frame->entry);
+	if (ret < 0)
+		DEBUG("ulog: dropping invalid message (error %d)\n", ret);
+
+	return ret;
+}
+
+static int ulog_receive_kmsgd_entry(struct log_device *dev, struct frame *frame)
 {
 	int ret;
 
-	ret = ulog_receive_entry(dev, entry);
+	ret = ulog_receive_entry(dev, frame);
 	if (ret == 1)
-		kmsgd_fix_entry(entry);
+		kmsgd_fix_entry(&frame->entry);
 
 	return ret;
 }
 
 static int ulog_clear_buffer(struct log_device *dev)
 {
-	int ret;
+	int ret = -1, fd;
 
-	ret = ioctl(dev->fd, ULOGGER_FLUSH_LOG);
-	if (ret < 0) {
-		set_error(dev->ctx, "ioctl(%s): %s", dev->path,
+	fd = open(dev->path, O_WRONLY|O_NONBLOCK);
+	if (fd < 0) {
+		set_error(dev->ctx, "cannot open %s: %s", dev->path,
 			  strerror(errno));
+		goto fail;
 	}
+
+	ret = ioctl(fd, ULOGGER_FLUSH_LOG);
+	if (ret < 0) {
+		set_error(dev->ctx, "ioctl(%s, ULOGGER_FLUSH_LOG): %s",
+			  dev->path, strerror(errno));
+	}
+fail:
+	if (fd >= 0)
+		close(fd);
 	return ret;
 }
 
-static int ulog_get_size(struct log_device *dev, int *total, int *readable)
+int add_ulog_device(struct ulogcat3_context *ctx, const char *name)
 {
-	*total = ioctl(dev->fd, ULOGGER_GET_LOG_BUF_SIZE);
-	if (*total < 0) {
-		set_error(dev->ctx, "ioctl(%s): %s", dev->path,
-			  strerror(errno));
-		return -1;
-	}
-
-	*readable = ioctl(dev->fd, ULOGGER_GET_LOG_LEN);
-	if (*readable < 0) {
-		set_error(dev->ctx, "ioctl(%s): %s", dev->path,
-			  strerror(errno));
-		return -1;
-	}
-
-	return 0;
-}
-
-int add_ulog_device(struct ulogcat_context *ctx, const char *name)
-{
-	int mode;
 	struct log_device *dev = NULL;
 
 	dev = log_device_create(ctx);
 	if (dev == NULL)
 		goto fail;
 
-	dev->priv = malloc(sizeof(union ulogger_buf));
-	if (dev->priv == NULL)
-		goto fail;
-
 	snprintf(dev->path, sizeof(dev->path), "/dev/ulog_%s", name);
 
-	mode = (ctx->flags & ULOGCAT_FLAG_CLEAR) ? O_WRONLY : O_RDONLY;
-
-	dev->fd = open(dev->path, mode|O_NONBLOCK);
+	dev->fd = open(dev->path, O_RDONLY|O_NONBLOCK);
 	if (dev->fd < 0) {
 		set_error(ctx, "cannot open %s: %s", dev->path,
 			  strerror(errno));
@@ -125,8 +141,8 @@ int add_ulog_device(struct ulogcat_context *ctx, const char *name)
 	}
 
 	dev->receive_entry = ulog_receive_entry;
+	dev->parse_entry = ulog_parse_entry;
 	dev->clear_buffer = ulog_clear_buffer;
-	dev->get_size = ulog_get_size;
 	dev->label = 'U';
 	ctx->ulog_device_count++;
 
@@ -138,6 +154,14 @@ int add_ulog_device(struct ulogcat_context *ctx, const char *name)
 		ctx->ulog_device_count--;
 	}
 
+	/* get amount of data already present in buffer */
+	dev->mark_readable = (ssize_t)ioctl(dev->fd, ULOGGER_GET_LOG_LEN);
+	if (dev->mark_readable < 0) {
+		set_error(dev->ctx, "ioctl(%s, ULOGGER_GET_LOG_LEN): %s",
+			  dev->path, strerror(errno));
+		goto fail;
+	}
+
 	return 0;
 
 fail:
@@ -145,7 +169,7 @@ fail:
 	return -1;
 }
 
-int add_all_ulog_devices(struct ulogcat_context *ctx)
+int add_all_ulog_devices(struct ulogcat3_context *ctx)
 {
 	FILE *fp;
 	char *p, buf[32];

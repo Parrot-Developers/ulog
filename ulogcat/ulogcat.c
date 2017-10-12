@@ -18,187 +18,216 @@
  * A few bits are derived from Android logcat.
  *
  */
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <stddef.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <errno.h>
 
-#include "ulogcat.h"
+#include <libulogcat.h>
 
-static void show_error(struct ulogcat_context *ctx)
+#define INFO(...)        fprintf(stderr, "ulogcat: " __VA_ARGS__)
+
+struct options {
+	struct ulogcat_opts_v3  opts;
+	int                     opt_clear;
+	char                  **ulog_devices;
+	int                     ulog_ndevices;
+};
+
+static void show_error(struct ulogcat3_context *ctx)
 {
-	INFO("libulogcat: %s\n", ulogcat_strerror(ctx));
+	INFO("libulogcat: %s\n", ulogcat3_strerror(ctx));
 }
 
-static void output_handler(void *data, unsigned char *ptr, unsigned int len)
+static void show_usage(const char *cmd)
 {
-	struct options *op = data;
+	fprintf(stderr, "Usage: %s [options]\n", cmd);
 
-	if (op->port)
-		server_output_handler(ptr, len);
-	else
-		IGNORE_RESULT(write(STDOUT_FILENO, ptr, len));
-
-	if (op->persist_filename)
-		persist_output_handler(ptr, len);
+	fprintf(stderr, "options include:\n"
+		"  -v <format>     Sets the log print format, where <format> is"
+		" one of:\n\n"
+		"                  short aligned process long csv\n\n"
+		"  -c              Clear (flush) the entire log and exit.\n"
+		"  -d              Dump the log and then exit (don't block)\n"
+		"  -k              Include kernel ring buffer messages in "
+		"output.\n"
+		"  -u              Include ulog messages in output (this is the"
+		" default if\n"
+		"                  none of options -k and -u are specified).\n"
+		"  -l              Prefix each message with letter 'U' or 'K' "
+		"to indicate\n"
+		"                  its origin (Ulog, Kernel). This is useful to"
+		" split\n"
+		"                  an interleaved output.\n"
+		"  -b <buffer>     Request alternate ulog buffer, 'main', "
+		"'balboa', etc.\n"
+		"                  Multiple -b parameters are allowed and the "
+		"results are\n"
+		"                  interleaved. The default is to show all "
+		"buffers.\n"
+		"                  contains the directory part of <path> is "
+		"used.\n"
+		"  -C              Use ANSI color sequences to show priority "
+		"levels; you can customize colors\n"
+		"                  used for each level with environment "
+		"variable ULOGCAT_COLORS, which contains\n"
+		"                  (possibly empty) sequences for each of the "
+		"8 levels, separated by character\n"
+		"                  '|'. Default value: "
+		"ULOGCAT_COLORS='||4;1;31|1;31|1;33|35||1;30'.\n"
+		"  -t <n>          Skip entries and show only <n> tail lines\n"
+		"  -h              Show this help\n"
+		"\n");
 }
 
-static int is_output_ready(struct options *op)
+static int parse_log_format(const char *str)
 {
-	/* persisting data takes precedence over client socket */
-	if (is_persist_alive())
-		return 1;
+	int ret = -1;
 
-	/* in blocking mode we wait until persist is alive */
-	if (op->persist_blocking_mode)
-		return 0;
+	if (str) {
+		if (strcmp(str, "short") == 0)
+			ret = ULOGCAT_FORMAT_SHORT;
+		else if (strcmp(str, "aligned") == 0)
+			ret = ULOGCAT_FORMAT_ALIGNED;
+		else if (strcmp(str, "process") == 0)
+			ret = ULOGCAT_FORMAT_PROCESS;
+		else if (strcmp(str, "long") == 0)
+			ret = ULOGCAT_FORMAT_LONG;
+		else if (strcmp(str, "csv") == 0)
+			ret = ULOGCAT_FORMAT_CSV;
+	}
 
-	if (op->port)
-		/* wait until a client is connected */
-		return is_client_connected();
+	return ret;
+}
 
-	/* stdout always ready */
-	return 1;
+static void get_options(int argc, char **argv, struct options *op)
+{
+	int ret;
+
+	memset(op, 0, sizeof(*op));
+	op->opts.opt_format = ULOGCAT_FORMAT_ALIGNED;
+
+	for (;;) {
+		ret = getopt(argc, argv, "b:Ccdhklt:uv:");
+		if (ret < 0)
+			break;
+
+		switch (ret) {
+		case 'c':
+			op->opt_clear = 1;
+			break;
+		case 'd':
+			op->opts.opt_flags |= ULOGCAT_FLAG_DUMP;
+			break;
+		case 'C':
+			op->opts.opt_flags |= ULOGCAT_FLAG_COLOR;
+			break;
+		case 'k':
+			op->opts.opt_flags |= ULOGCAT_FLAG_KLOG;
+			break;
+		case 'u':
+			op->opts.opt_flags |= ULOGCAT_FLAG_ULOG;
+			break;
+		case 'l':
+			op->opts.opt_flags |= ULOGCAT_FLAG_SHOW_LABEL;
+			break;
+		case 'b':
+			op->ulog_devices = realloc(op->ulog_devices,
+						   (op->ulog_ndevices+1)*
+						   sizeof(*op->ulog_devices));
+			if (op->ulog_devices)
+				op->ulog_devices[op->ulog_ndevices++] = optarg;
+			op->opts.opt_flags |= ULOGCAT_FLAG_ULOG;
+			break;
+		case 't':
+			op->opts.opt_tail = atoi(optarg);
+			break;
+		case 'h':
+			show_usage(argv[0]);
+			exit(0);
+			break;
+		case 'v':
+			ret = parse_log_format(optarg);
+			if (ret < 0) {
+				fprintf(stderr, "Invalid parameter to -v\n");
+				show_usage(argv[0]);
+				exit(-1);
+			}
+			op->opts.opt_format = ret;
+			break;
+		default:
+			fprintf(stderr, "Unrecognized option\n");
+			show_usage(argv[0]);
+			exit(-1);
+			break;
+		}
+	}
+
+	if (!(op->opts.opt_flags & (ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_KLOG)))
+		/* default output is ulog buffers */
+		op->opts.opt_flags |= ULOGCAT_FLAG_ULOG;
+}
+
+static int process_logs(struct ulogcat3_context *ctx, int max_entries,
+			unsigned int idle_ms)
+{
+	int ret;
+
+	while (1) {
+
+		/* this will block until some entries are available */
+		ret = ulogcat3_process_logs(ctx, max_entries);
+		if (ret < 0) {
+			show_error(ctx);
+			break;
+		} else if (ret == 0)
+			/* no more processing needed (dump mode) */
+			break;
+
+		/* optionally throttle CPU usage */
+		if ((max_entries > 0) && idle_ms && (ret == 1))
+			usleep(idle_ms*1000);
+	}
+
+	return ret;
 }
 
 int main(int argc, char **argv)
 {
-	int i, ret = -1, timeout_ms, nfds, n;
+	int ret = -1;
 	struct options op;
-	struct ulogcat_context *ctx;
-	struct pollfd *fds = NULL;
+	struct ulogcat3_context *ctx;
 
 	get_options(argc, argv, &op);
+	op.opts.opt_output_fp = stdout;
 
-	if (op.persist_test_client) {
-		control_pomp_client(&op);
-		return 0;
-	}
-
-	op.opts.opt_output_handler = output_handler;
-	op.opts.opt_output_handler_data = &op;
-
-	ctx = ulogcat_create2(&op.opts);
+	ctx = ulogcat3_open(&op.opts, (const char **)op.ulog_devices,
+			    op.ulog_ndevices);
 	if (ctx == NULL) {
-		INFO("cannot allocate ulogcat context\n");
+		INFO("cannot open ulogcat context\n");
 		goto finish;
 	}
 
-	/* add explicitly requested ulog buffers */
-	for (i = 0; i < op.ulog_ndevices; i++) {
-		ret = ulogcat_add_device(ctx, op.ulog_devices[i]);
-		if (ret) {
-			show_error(ctx);
-			goto finish;
-		}
-	}
-
-	/* add explicitly requested Android buffers */
-	for (i = 0; i < op.alog_ndevices; i++) {
-		ret = ulogcat_add_android_device(ctx, op.alog_devices[i]);
-		if (ret) {
-			show_error(ctx);
-			goto finish;
-		}
-	}
-
-	/* get simple actions (clear, get size) out of the way */
-	if (op.opts.opt_flags & (ULOGCAT_FLAG_GET_SIZE|ULOGCAT_FLAG_CLEAR)) {
-		ret = ulogcat_process_logs(ctx);
+	/* get specific actions (clear) out of the way */
+	if (op.opt_clear) {
+		ret = ulogcat3_clear(ctx);
 		if (ret)
 			show_error(ctx);
 		goto finish;
 	}
 
-	/* complete setup */
-	ret = ulogcat_init(ctx);
-	if (ret) {
-		show_error(ctx);
-		goto finish;
-	}
-
-	nfds = FD_NB + ulogcat_get_descriptor_nb(ctx);
-
-	fds = malloc(nfds*sizeof(*fds));
-	if (fds == NULL)
-		goto finish;
-
-	for (i = 0; i < nfds; i++) {
-		fds[i].fd = -1;
-		fds[i].events = 0;
-	}
-
-	ret = ulogcat_setup_descriptors(ctx, &fds[FD_NB], nfds-FD_NB);
-	if (ret) {
-		show_error(ctx);
-		goto finish;
-	}
-
-	if (init_server(op.port, fds)                    ||
-	    init_control(fds)                            ||
-	    init_control_pomp(&op, fds)                  ||
-	    init_mount_monitor(fds, op.persist_filename) ||
-	    init_persist(&op))
-		goto finish;
-
-	if (op.persist_restore)
-		restore_persist();
-	else
-		enable_persist();
-
-	timeout_ms = (op.opts.opt_flags & ULOGCAT_FLAG_DUMP) ? 0 : -1;
-
-	while (1) {
-
-		n = nfds;
-		/*
-		 * Rudimentary flow control: do not poll libulogcat
-		 * descriptors when we are not ready to output messages.
-		 */
-		if (!is_output_ready(&op)) {
-			n = FD_NB;
-			timeout_ms = -1;
-		}
-
-		ret = poll(fds, n, timeout_ms);
-		if (ret < 0) {
-			if (errno == EINTR)
-				continue;
-			INFO("poll: %s", strerror(errno));
-			break;
-		}
-
-		if (process_server(fds)        ||
-		    process_mount_monitor(fds) ||
-		    process_control(fds, ctx)  ||
-		    process_control_pomp(fds, ctx))
-			break;
-
-		if (n == FD_NB)
-			continue;
-
-		ret = ulogcat_process_descriptors(ctx, ret, &timeout_ms);
-		if (ret == 1) {
-			ret = 0;
-			break;
-		} else if (ret < 0) {
-			break;
-		}
-
-		/* limit CPU and I/O usage in persist (non-interactive) mode */
-		if (is_persist_enabled()) {
-			timeout_ms = 1000;
-			sleep(1);
-		}
-	}
+	ret = process_logs(ctx, 0, 0);
 
 finish:
-	shutdown_persist();
-	shutdown_mount_monitor();
-	shutdown_control_pomp();
-	shutdown_control();
-	shutdown_server();
-
-	ulogcat_destroy(ctx);
+	ulogcat3_close(ctx);
 	free(op.ulog_devices);
-	free(op.alog_devices);
-	free(fds);
 
 	return ret;
 }

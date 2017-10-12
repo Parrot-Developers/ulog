@@ -37,9 +37,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/uio.h>
-#include <sys/eventfd.h>
 
 #include <ulog.h>
 #include <ulogger.h>
@@ -47,15 +45,6 @@
 #include <libulogcat.h>
 
 #include "libulogcat_list.h"
-
-/* The maximum number of frames to buffer for a device */
-#define MAX_PENDING_FRAMES    (64)
-
-/* The maximum number of frames after which we stop flushing */
-#define MAX_FLUSHED_FRAMES    (1000000)
-
-/* The amount of milliseconds of idleness after which we flush all frames */
-#define FRAME_IDLE_TIMEOUT_MS (50)
 
 /* Default colors used in text output mode */
 #define DEFAULT_COLORS  "||4;1;31|1;31|1;33|35||1;30"
@@ -71,102 +60,97 @@
 
 #define LIBULOGCAT_API  __attribute__((visibility("default")))
 
-struct frame {
-	uint64_t                 stamp;
-	struct listnode          flist;
-	int                      is_banner;
-	unsigned int             size;
-	unsigned char            buf[0];
-};
+/* Idle timeout after which output descriptor is flushed */
+#define LIBULOGCAT_TIMEOUT_MS  10
 
-struct log_entry {
-	struct ulog_entry        ulog;
-	char                     label;
+/*
+ * Frame buffer size: this should be chosen large enough to contain most
+ * messages. A typical ulogger kernel entry has the following size:
+ *
+ * size = sizeof(struct ulogger_entry) + strlen(pname)+1 + strlen(tname)+1 +
+ *        sizeof(priority) + strlen(tag)+1 + strlen(message)
+ *
+ * The following assumptions should be true for most messages:
+ *  * strlen(tag) <= 16
+ *  * strlen(message) <= 120
+ *
+ * Hence: size <= 6*4 + 16 + 16 + 4 + 16 + 120 = 196
+ *
+ * If a message needs more than this size, an extra buffer will be allocated.
+ */
+#define ULOGCAT_FRAME_BUFSIZE   (200)
+
+struct frame {
+	struct log_device       *dev;         /* device that issued frame */
+	struct listnode          flist;       /* queue to which frame belongs */
+	struct ulog_entry        entry;       /* parsed ulog entry */
+	uint8_t                 *buf;         /* pointer to raw data */
+	size_t                   bufsize;     /* raw buffer size */
+	uint64_t                 stamp;       /* message timestamp */
+	uint8_t                  data[ULOGCAT_FRAME_BUFSIZE];
 };
 
 struct log_device;
 
-typedef int (*ulogcat_recv_entry_t)(struct log_device *, struct ulog_entry *);
-typedef int (*ulogcat_render_frame_t)(struct ulogcat_context *,
-				      const struct log_entry *,
-				      struct frame *);
+typedef int (*ulogcat_recv_entry_t)(struct log_device *, struct frame *);
+typedef int (*ulogcat_parse_entry_t)(struct frame *);
 typedef int (*ulogcat_clear_buffer_t)(struct log_device *);
-typedef int (*ulogcat_get_size_t)(struct log_device *, int *, int *);
-
-enum log_device_state {
-	ACTIVE,
-	PAUSED,
-	IDLE,
-};
 
 struct log_device {
-	struct ulogcat_context  *ctx;
-	enum log_device_state    state;
+	struct ulogcat3_context *ctx;
 	char                     path[64];
 	int                      fd;
 	int                      idx;
 	int                      printed;
+	ssize_t                  mark_readable;
 	struct listnode          queue;
 	struct listnode          dlist;
 	ulogcat_recv_entry_t     receive_entry;
+	ulogcat_parse_entry_t    parse_entry;
 	ulogcat_clear_buffer_t   clear_buffer;
-	ulogcat_get_size_t       get_size;
-	int                      pending_frames;
+	int                      pending;
 	char                     label;
 	void                    *priv;
 };
 
-struct ulogcat_context {
+struct ulogcat3_context {
 	enum ulogcat_format      log_format;
 	unsigned int             flags;
+	int                      tail;
 	char                     ansi_color[8][32];
+	FILE                    *output_fp;
 	int                      output_fd;
-	ulogcat_output_handler_t output_handler;
-	void                    *output_handler_data;
-	off_t                    output_count;
 	int                      device_count;
+	int                      devices_busy;
+	int                      pending;
+	int                      render;
 	struct pollfd           *fds;
 	struct listnode          log_devices;
-	struct listnode          free_frames;
-	int                      queued_frames;
-	ulogcat_render_frame_t   render_frame;
-	int                      render_frame_size;
+	struct listnode          free_queue;
+	struct listnode          render_queue;
+	struct listnode          pending_queue;
+	struct frame            *frame_pool;
+	uint8_t                 *render_buf;
+	int                      render_size;
+	int                      render_len;
 	int                      ulog_device_count;
-	int                      alog_device_count;
-	int                      control_fd[2];
+	int                      mark_reached;
 	char                     last_error[128];
 };
 
-struct log_device *log_device_create(struct ulogcat_context *ctx);
+struct log_device *log_device_create(struct ulogcat3_context *ctx);
 void log_device_destroy(struct log_device *dev);
-void set_error(struct ulogcat_context *ctx, const char *fmt, ...);
+void set_error(struct ulogcat3_context *ctx, const char *fmt, ...);
 
-int add_ulog_device(struct ulogcat_context *ctx, const char *name);
-int add_alog_device(struct ulogcat_context *ctx, const char *name);
+int add_ulog_device(struct ulogcat3_context *ctx, const char *name);
 void kmsgd_fix_entry(struct ulog_entry *entry);
 
-int add_all_ulog_devices(struct ulogcat_context *ctx);
-int add_all_alog_devices(struct ulogcat_context *ctx);
+int add_all_ulog_devices(struct ulogcat3_context *ctx);
 
-int ulogcat_do_ioctl(struct ulogcat_context *ctx);
-int ulogcat_read_log_lines(struct ulogcat_context *ctx);
+int text_render_size(void);
+int text_render_frame(struct ulogcat3_context *ctx, struct frame *frame,
+		      int is_banner);
 
-int ckcm_frame_size(void);
-int render_ckcm_frame(struct ulogcat_context *ctx,
-		      const struct log_entry *_entry, struct frame *frame);
-
-int binary_frame_size(void);
-int binary_full_frame_size(void);
-int render_binary_frame(struct ulogcat_context *ctx,
-			const struct log_entry *_entry, struct frame *frame);
-
-int text_frame_size(void);
-int render_text_frame(struct ulogcat_context *ctx,
-		      const struct log_entry *_entry, struct frame *frame);
-
-int output_rotate(struct ulogcat_context *ctx, struct frame *frame);
-void flush_rotate(struct ulogcat_context *ctx);
-
-void setup_colors(struct ulogcat_context *ctx);
+void setup_colors(struct ulogcat3_context *ctx);
 
 #endif /* _LIBULOGCAT_PRIVATE_H */

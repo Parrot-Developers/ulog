@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * ulogcat, a reader for ulogger/logger/klog messages.
+ * ulogcat, a reader for ulogger/klog messages.
  *
  */
 
@@ -31,12 +31,6 @@
 #include <signal.h>
 #include <poll.h>
 #include <time.h>
-#include <sys/socket.h>
-#include <sys/mount.h>
-#include <netinet/in.h>
-#include <sys/un.h>
-#include <arpa/inet.h>
-#include <netinet/tcp.h>
 #include <assert.h>
 #include <stdarg.h>
 #include <sys/klog.h>
@@ -56,13 +50,11 @@ ULOG_DECLARE_TAG(libulogcat_test);
 		fprintf(stderr, "\n");					\
 	} while (0)
 
-#define LOG_MASK (ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_ALOG|ULOGCAT_FLAG_KLOG)
+#define LOG_MASK (ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_KLOG)
 
 #define TMP_FILENAME "/tmp/libulogcat-test"
 
 #define KMSGD_WAIT_US 10000
-
-static int has_android;
 
 static void ulog(const char *buf)
 {
@@ -80,48 +72,6 @@ static void klog(const char *buf)
 	}
 }
 
-static int can_use_alog(void)
-{
-	int fd, ret = 0;
-
-	fd = open("/dev/log/main", O_WRONLY);
-	if ((fd < 0) && (errno == ENOENT))
-		fd = open("/dev/log_main", O_WRONLY);
-
-	if (fd >= 0) {
-		ret = 1;
-		close(fd);
-	}
-	return ret;
-}
-
-static void alog(const char *buf)
-{
-	int fd, ret;
-	struct iovec vec[3];
-	const unsigned char prio = 4;
-	const char tag[] = "libulogcat_test";
-
-	fd = open("/dev/log/main", O_WRONLY);
-	if ((fd < 0) && (errno == ENOENT))
-		fd = open("/dev/log_main", O_WRONLY);
-
-	if (fd >= 0) {
-		vec[0].iov_base = (void *)&prio;
-		vec[0].iov_len = 1;
-		vec[1].iov_base = (void *)tag;
-		vec[1].iov_len = sizeof(tag);
-		vec[2].iov_base = (void *)buf;
-		vec[2].iov_len = strlen(buf)+1;
-
-		do {
-			ret = writev(fd, vec, 3);
-		} while ((ret < 0) && (errno == EINTR));
-
-		close(fd);
-	}
-}
-
 static void sendlog(unsigned int flags, const char *fmt, ...)
 {
 	va_list ap;
@@ -133,21 +83,19 @@ static void sendlog(unsigned int flags, const char *fmt, ...)
 
 	if (flags & ULOGCAT_FLAG_ULOG)
 		ulog(buf);
-	if (flags & ULOGCAT_FLAG_ALOG)
-		alog(buf);
 	if (flags & ULOGCAT_FLAG_KLOG)
 		klog(buf);
 }
 
-static void run(struct ulogcat_opts_v2 *opts)
+static void run(struct ulogcat_opts_v3 *opts)
 {
 	int ret;
-	struct ulogcat_context *ctx;
+	struct ulogcat3_context *ctx;
 
-	ctx = ulogcat_create2(opts);
+	ctx = ulogcat3_create(opts);
 	assert(ctx);
 
-	ret = ulogcat_process_logs(ctx);
+	ret = ulogcat3_process_logs(ctx);
 	if (ret) {
 		INFO("libulogcat: %s\n", ulogcat_strerror(ctx));
 		assert(!(ret));
@@ -168,36 +116,11 @@ static void clear(unsigned int flags)
 	run(&opts);
 }
 
-static void show_size(unsigned int flags)
-{
-	struct ulogcat_opts_v2 opts;
-
-	TRACE("flags = 0x%x", flags);
-
-	memset(&opts, 0, sizeof(opts));
-	opts.opt_output_fd = -1;
-	opts.opt_flags = ULOGCAT_FLAG_GET_SIZE|flags;
-	run(&opts);
-}
-
 static void test_ioctl(void)
 {
-	show_size(ULOGCAT_FLAG_ULOG);
-	show_size(ULOGCAT_FLAG_KLOG);
-	if (has_android)
-		show_size(ULOGCAT_FLAG_ALOG);
-	show_size(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_ALOG);
-	show_size(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_KLOG);
-	show_size(ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_ALOG);
-	show_size(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_ALOG|ULOGCAT_FLAG_KLOG);
 	clear(ULOGCAT_FLAG_ULOG);
 	clear(ULOGCAT_FLAG_KLOG);
-	if (has_android)
-		clear(ULOGCAT_FLAG_ALOG);
-	clear(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_ALOG);
 	clear(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_KLOG);
-	clear(ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_ALOG);
-	clear(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_ALOG|ULOGCAT_FLAG_KLOG);
 }
 
 static int open_tmp_file(void)
@@ -271,7 +194,7 @@ static void run_format(unsigned int flags, unsigned int fmt, int binary)
 {
 	int matches, expected_matches;
 	static int count;
-	struct ulogcat_opts_v2 opts;
+	struct ulogcat_opts_v3 opts;
 	char tag[64];
 
 	TRACE("flags = 0x%x, fmt = %u binary=%d", flags, fmt, binary);
@@ -311,8 +234,6 @@ static void test_all_formats(unsigned int flags)
 	run_format(flags, ULOGCAT_FORMAT_PROCESS, 0);
 	run_format(flags, ULOGCAT_FORMAT_LONG, 0);
 	run_format(flags, ULOGCAT_FORMAT_CSV, 0);
-	run_format(flags, ULOGCAT_FORMAT_BINARY, 1);
-	run_format(flags, ULOGCAT_FORMAT_CKCM, 1);
 }
 
 static void test_format(void)
@@ -321,80 +242,15 @@ static void test_format(void)
 
 	test_all_formats(ULOGCAT_FLAG_ULOG);
 	test_all_formats(ULOGCAT_FLAG_KLOG);
-	if (has_android)
-		test_all_formats(ULOGCAT_FLAG_ALOG);
-
-	flags = ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_ULOG;
-	test_all_formats(flags);
-	if (has_android)
-		flags |= ULOGCAT_FLAG_ALOG;
-	test_all_formats(flags);
+	test_all_formats(ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_ULOG);
 }
 
 #define MAGIC ((void *)0x12345678)
 
-static void output_handler(void *data, unsigned char *buf, unsigned len)
-{
-	int fd;
-	unsigned char pattern = (uint8_t)(uint32_t)data;
-
-	if (pattern)
-		assert((buf[0] == pattern) || (buf[0] == '-'));
-
-	fd = open_tmp_file();
-	(void)write(fd, buf, len);
-	close(fd);
-}
-
-static void run_handler(unsigned int flags, char pattern)
-{
-	static int count;
-	int matches, expected_matches;
-	struct ulogcat_opts_v2 opts;
-	char tag[64];
-
-	TRACE("flags = 0x%x pattern=%c", flags, pattern);
-
-	clear(flags & LOG_MASK);
-
-	memset(&opts, 0, sizeof(opts));
-	opts.opt_output_fd = -1;
-	opts.opt_output_handler = &output_handler;
-	opts.opt_output_handler_data = (void *)(uint32_t)pattern;
-	opts.opt_flags = ULOGCAT_FLAG_DUMP|flags;
-	opts.opt_format = ULOGCAT_FORMAT_ALIGNED;
-
-	/* make a unique tag for matching lines */
-	snprintf(tag, sizeof(tag), "libulogcat-test-%d", count++);
-
-	sendlog(flags & LOG_MASK, "Hello from %s, tag=%s\n", __func__, tag);
-
-	/* leave some time for kmsgd to copy message */
-	if (flags & ULOGCAT_FLAG_KLOG)
-		usleep(KMSGD_WAIT_US);
-
-	run(&opts);
-
-	/* count number of tags appearing in output */
-	matches = grep_tmp_file(tag, 0);
-	expected_matches = weight(flags & LOG_MASK);
-	assert(matches == expected_matches);
-
-	clean_tmp_file();
-}
-
-static void test_handler(void)
-{
-	run_handler(ULOGCAT_FLAG_ULOG, 0);
-	run_handler(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_KLOG, 0);
-}
-
 static void test_label(void)
 {
-	run_handler(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_SHOW_LABEL, 'U');
-	run_handler(ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_SHOW_LABEL, 'K');
-	if (has_android)
-		run_handler(ULOGCAT_FLAG_ALOG|ULOGCAT_FLAG_SHOW_LABEL, 'A');
+	run(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_SHOW_LABEL);
+	run(ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_SHOW_LABEL);
 }
 
 static void test_color(void)
@@ -450,12 +306,9 @@ static void test_lines(void)
 
 int main(int argc, char *argv[])
 {
-	has_android = can_use_alog();
-
 	INFO("STARTING TESTS...\n");
 	test_ioctl();
 	test_format();
-	test_handler();
 	test_label();
 	test_color();
 	test_lines();

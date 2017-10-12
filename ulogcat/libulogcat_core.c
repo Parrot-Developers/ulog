@@ -19,7 +19,7 @@
 
 #include "libulogcat_private.h"
 
-void set_error(struct ulogcat_context *ctx, const char *fmt, ...)
+void set_error(struct ulogcat3_context *ctx, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -28,269 +28,392 @@ void set_error(struct ulogcat_context *ctx, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void output_frame(struct ulogcat_context *ctx, struct frame *frame)
+static void output_rendered(struct ulogcat3_context *ctx)
 {
 	ssize_t ret;
 
-	if (ctx->output_handler) {
-		/* custom output handler */
-		ctx->output_handler(ctx->output_handler_data, frame->buf,
-				    frame->size);
-	} else {
-		/* just use output file descriptor */
+	if (ctx->output_fp) {
+		ret = fwrite(ctx->render_buf, ctx->render_len, 1,
+			     ctx->output_fp);
+		if (ret != 1)
+			set_error(ctx, "cannot output frame: %s",
+				  strerror(errno));
+	} else if (ctx->output_fd >= 0) {
 		do {
-			ret = write(ctx->output_fd, frame->buf, frame->size);
+			ret = write(ctx->output_fd,
+				    ctx->render_buf, ctx->render_len);
 		} while ((ret < 0) && (errno == EINTR));
 	}
 }
 
-static struct frame *alloc_frame(struct ulogcat_context *ctx)
+static void flush_output(struct ulogcat3_context *ctx)
 {
-	unsigned int framesize;
-	struct frame *f = NULL;
+	if (ctx->output_fp)
+		fflush(ctx->output_fp);
+}
 
-	if (!list_empty(&ctx->free_frames)) {
-		/* reuse frame */
-		f = node_to_item(list_head(&ctx->free_frames), struct frame,
-				 flist);
-		list_remove(&f->flist);
-	} else {
-		/* no frames left */
-		framesize = sizeof(struct frame) + ctx->render_frame_size;
-		f = malloc(framesize);
+static struct frame *alloc_frame(struct ulogcat3_context *ctx)
+{
+	struct frame *frame;
+
+	if (list_empty(&ctx->free_queue))
+		/* out of frames, this should theoretically not happen */
+		return NULL;
+
+	/* reuse frame */
+	frame = node_to_item(list_head(&ctx->free_queue), struct frame, flist);
+	list_remove(&frame->flist);
+
+	return frame;
+}
+
+static void free_frame(struct ulogcat3_context *ctx, struct frame *frame)
+{
+	if (frame) {
+		if (frame->buf != frame->data) {
+			/* free extra allocated memory */
+			free(frame->buf);
+			frame->buf = frame->data;
+			frame->bufsize = sizeof(frame->data);
+		}
+		list_add_tail(&ctx->free_queue, &frame->flist);
 	}
-	return f;
 }
 
-static void free_frame(struct ulogcat_context *ctx, struct frame *frame)
-{
-	if (frame)
-		list_add_tail(&ctx->free_frames, &frame->flist);
-}
-
-static void enqueue_frame(struct log_device *dev, struct frame *frame)
+static struct frame *find_oldest_pending_frame(struct ulogcat3_context *ctx)
 {
 	struct listnode *node;
-	struct frame *item;
-
-	/* queue is sorted in increasing stamp order */
-	list_for_each_reverse(node, &dev->queue) {
-		item = node_to_item(node, struct frame, flist);
-		if (frame->stamp >= item->stamp)
-			/* we found a smaller stamp */
-			break;
-	}
-
-	list_add_tail(list_head(node), &frame->flist);
-	dev->ctx->queued_frames++;
-	dev->pending_frames++;
-
-	DEBUG("core: enqueued frame from %s (pending=%d global=%d)\n",
-	      dev->path, dev->pending_frames, dev->ctx->queued_frames);
-}
-
-static struct log_device *
-find_device_with_oldest_frame(struct ulogcat_context *ctx, int *lastframe)
-{
-	struct listnode *node;
-	struct frame *item;
-	struct log_device *dev, *res = NULL;
+	struct frame *frame, *res = NULL;
 	uint64_t stamp = 0ULL;
 
-	list_for_each(node, &ctx->log_devices) {
-		dev = node_to_item(node, struct log_device, dlist);
-		if (list_empty(&dev->queue))
-			continue;
-		item = node_to_item(list_head(&dev->queue), struct frame,
-				    flist);
-		if (!res || (item->stamp < stamp)) {
-			res = dev;
-			stamp = item->stamp;
-			/* is this the last frame in queue ? */
-			if (lastframe) {
-				if (list_tail(&dev->queue) == &item->flist)
-					*lastframe = 1;
-				else
-					*lastframe = 0;
-			}
+	list_for_each(node, &ctx->pending_queue) {
+		frame = node_to_item(node, struct frame, flist);
+		if ((res == NULL) || (frame->stamp < stamp)) {
+			res = frame;
+			stamp = frame->stamp;
 		}
 	}
 
-	if (res)
-		DEBUG("core: oldest frame from %s (%s) stamp=%llu last=%d\n",
-		      res->path,
-		      (res->state == ACTIVE) ? "ACTIVE" :
-		      ((res->state == PAUSED) ? "PAUSED" : "IDLE"),
-		      item->stamp, lastframe ? *lastframe : 0);
 	return res;
 }
 
-static int render_frame(struct ulogcat_context *ctx,
-			const struct log_entry *_entry, struct frame *frame,
+static int render_frame(struct ulogcat3_context *ctx, struct frame *frame,
 			int is_banner)
 {
-	const struct ulog_entry *entry = &_entry->ulog;
-
-	if (frame == NULL)
-		return -1;
-
-	frame->stamp = entry->tv_sec*1000000ULL + entry->tv_nsec/1000ULL;
-	frame->is_banner = is_banner;
-
-	return ctx->render_frame(ctx, _entry, frame);
+	/* for now only text rendering is supported */
+	return text_render_frame(ctx, frame, is_banner);
 }
 
 /* Send a banner showing where a given device starts in the merged stream */
-static void output_banner_frame(struct log_device *dev, uint64_t stamp)
+static void flush_banner_frame(struct frame *ref)
 {
+	int ret;
 	char str[128];
-	struct frame *frame;
-	struct log_entry entry;
-
-	snprintf(str, sizeof(str), "------------- beginning of %s", dev->path);
+	uint64_t stamp;
+	struct frame frame;
+	struct log_device *dev = ref->dev;
 
 	/* build a fake log entry */
-	entry.ulog.tv_sec = (time_t)(stamp/1000000ULL);
-	entry.ulog.tv_nsec = (long)(stamp-entry.ulog.tv_sec*1000000ULL)*1000;
-	entry.ulog.priority = ULOG_INFO;
-	entry.ulog.pid = getpid();
-	entry.ulog.pname = "";
-	entry.ulog.tid = entry.ulog.pid;
-	entry.ulog.tname = entry.ulog.pname;
-	entry.ulog.tag = "ulogcat";
-	entry.ulog.message = str;
-	entry.ulog.len = strlen(str)+1;
-	entry.ulog.is_binary = 0;
-	entry.ulog.color = 0xffffff;
-	entry.label = dev->label;
+	stamp = ref->stamp;
+	snprintf(str, sizeof(str), "------------- beginning of %s", dev->path);
+	frame.entry.tv_sec = (time_t)(stamp/1000000ULL);
+	frame.entry.tv_nsec = (long)(stamp-frame.entry.tv_sec*1000000ULL)*1000;
+	frame.entry.priority = ULOG_INFO;
+	frame.entry.pid = getpid();
+	frame.entry.pname = "";
+	frame.entry.tid = frame.entry.pid;
+	frame.entry.tname = frame.entry.pname;
+	frame.entry.tag = "ulogcat";
+	frame.entry.message = str;
+	frame.entry.len = strlen(str)+1;
+	frame.entry.is_binary = 0;
+	frame.entry.color = 0xffffff;
+	frame.dev = dev;
 
-	frame = alloc_frame(dev->ctx);
-
-	if (render_frame(dev->ctx, &entry, frame, 1) == 0)
-		output_frame(dev->ctx, frame);
-
-	free_frame(dev->ctx, frame);
+	ret = render_frame(dev->ctx, &frame, 1);
+	if (ret == 0)
+		output_rendered(dev->ctx);
 }
 
-static void flush_frame(struct log_device *dev, struct frame *frame)
+/* Render a frame and output it */
+static void flush_frame(struct ulogcat3_context *ctx, struct frame *frame)
 {
-	struct ulogcat_context *ctx = dev->ctx;
+	int ret;
+	struct log_device *dev = frame->dev;
 
+	/* prepend banner if this is the first printed entry for this device */
 	if (!dev->printed && (ctx->device_count > 1)) {
-		output_banner_frame(dev, frame->stamp);
+		flush_banner_frame(frame);
 		dev->printed = 1;
 	}
-	output_frame(ctx, frame);
 
-	list_remove(&frame->flist);
-	free_frame(ctx, frame);
-	ctx->queued_frames--;
-	dev->pending_frames--;
+	ret = dev->parse_entry(frame);
+	if (ret < 0)
+		return;
+
+	ret = render_frame(ctx, frame, 0);
+	if (ret == 0)
+		output_rendered(ctx);
 }
 
-static struct log_device *flush_one_frame(struct ulogcat_context *ctx)
+static void enqueue_render(struct ulogcat3_context *ctx, struct frame *frame)
 {
-	struct log_device *dev;
-	struct frame *f;
+	list_add_tail(&ctx->render_queue, &frame->flist);
 
-	dev = find_device_with_oldest_frame(ctx, NULL);
-	if (dev) {
-		f = node_to_item(list_head(&dev->queue), struct frame, flist);
-		flush_frame(dev, f);
+	if (ctx->render < ctx->tail) {
+		ctx->render++;
+	} else {
+		/* keep queue from growing if we already have enough lines */
+		frame = node_to_item(list_head(&ctx->render_queue),
+				     struct frame, flist);
+		list_remove(&frame->flist);
+		free_frame(ctx, frame);
 	}
-	return dev;
 }
 
-static void flush_all_frames(struct ulogcat_context *ctx)
-{
-	struct log_device *dev;
-
-	DEBUG("core: flushing all frames\n");
-
-	do {
-		dev = flush_one_frame(ctx);
-	} while (dev);
-}
-
-static void flush_all_frames_until_single_frame(struct ulogcat_context *ctx)
+static void flush_render_frame(struct ulogcat3_context *ctx, int drop)
 {
 	struct frame *frame;
-	struct log_device *dev;
-	int lastframe, flushable;
 
-	do {
-		dev = find_device_with_oldest_frame(ctx, &lastframe);
-		if (dev == NULL)
-			break;
-
-		frame = node_to_item(list_head(&dev->queue), struct frame,
-				     flist);
-
-		/* can we flush this frame ? */
-		flushable = !lastframe || (dev->state == IDLE);
-		if (flushable)
-			flush_frame(dev, frame);
-
-	} while (flushable);
+	if (ctx->render > 0) {
+		frame = node_to_item(list_head(&ctx->render_queue),
+				     struct frame, flist);
+		if (!drop)
+			flush_frame(ctx, frame);
+		list_remove(&frame->flist);
+		free_frame(ctx, frame);
+		ctx->render--;
+	}
 }
 
-static int receive_entry(struct log_device *dev, struct log_entry *entry)
+static void flush_render_queue(struct ulogcat3_context *ctx)
 {
-	entry->label = dev->label;
-	return dev->receive_entry(dev, &entry->ulog);
+	while (ctx->render > 0)
+		flush_render_frame(ctx, 0);
 }
 
-static int process_devices(struct ulogcat_context *ctx, int force)
+static void drop_render_frame(struct ulogcat3_context *ctx)
+{
+	flush_render_frame(ctx, 1);
+}
+
+static void flush_pending_frame(struct ulogcat3_context *ctx, int drop)
+{
+	struct frame *frame;
+
+	if (ctx->pending > 0) {
+		frame = find_oldest_pending_frame(ctx);
+		if (!drop)
+			flush_frame(ctx, frame);
+		frame->dev->pending = 0;
+		list_remove(&frame->flist);
+		free_frame(ctx, frame);
+		ctx->pending--;
+	}
+}
+
+static void drop_pending_frame(struct ulogcat3_context *ctx)
+{
+	flush_pending_frame(ctx, 1);
+}
+
+static void flush_pending_queue(struct ulogcat3_context *ctx)
+{
+	while (ctx->pending > 0)
+		flush_pending_frame(ctx, 0);
+}
+
+/*
+ * Check if we have reached the 'mark', i.e. if we have read for each device
+ * at least the amount of data that was readable at initialization.
+ */
+static void update_mark_reached(struct ulogcat3_context *ctx)
+{
+	struct listnode *node;
+	struct log_device *dev;
+
+	if (ctx->mark_reached)
+		return;
+
+	/* have we read the required amount of data from each device ? */
+	list_for_each(node, &ctx->log_devices) {
+		dev = node_to_item(node, struct log_device, dlist);
+		if (dev->mark_readable > 0)
+			/* not done on this device */
+			return;
+	}
+	ctx->mark_reached = 1;
+}
+
+/*
+ * Check if we are done buffering in render queue in order to comply with
+ * outputting only tailing lines.
+ *
+ * If we are done, drop entries in excess so that we only have the required
+ * number of lines left, and flush.
+ */
+static void process_tail_flush(struct ulogcat3_context *ctx)
+{
+	if (!ctx->tail || !ctx->mark_reached)
+		return;
+
+	/* drop unwanted frames, we want the exact specified number of lines */
+	while (ctx->render + ctx->pending > ctx->tail) {
+
+		/* drop oldest frames first */
+		if (ctx->render > 0) {
+			drop_render_frame(ctx);
+			continue;
+		}
+
+		/* drop remaining pending frames */
+		if (ctx->pending > 0) {
+			drop_pending_frame(ctx);
+			continue;
+		}
+	}
+
+	/* buffering is not required anymore, we can flush everything */
+	flush_render_queue(ctx);
+	ctx->tail = 0;
+}
+
+/*
+ * Read entries from active device, and flush one frame.
+ * Returns the number of frames read.
+ */
+static int process_devices(struct ulogcat3_context *ctx, int timeout_ms)
 {
 	int ret, frames = 0;
 	struct frame *frame;
 	struct listnode *node;
 	struct log_device *dev;
-	struct log_entry entry;
 
+	/* setup descriptors */
 	list_for_each(node, &ctx->log_devices) {
 		dev = node_to_item(node, struct log_device, dlist);
+		ctx->fds[dev->idx].fd = dev->pending ? -1 : dev->fd;
+	}
 
-		if ((ctx->fds[dev->idx].fd < 0) && !force)
-			/* paused device */
-			continue;
+	/* force non-blocking wait if we have pending frames */
+	if (ctx->pending > 0)
+		timeout_ms = 0;
 
-		if (!(ctx->fds[dev->idx].revents & POLLIN) && !force) {
-			dev->state = IDLE;
-			DEBUG("core: %s -> IDLE\n", dev->path);
+	/* force short timeout if devices are still busy */
+	if ((timeout_ms < 0) && ctx->devices_busy)
+		timeout_ms = LIBULOGCAT_TIMEOUT_MS;
+
+	ctx->devices_busy = 0;
+
+	ret = poll(ctx->fds, ctx->device_count, timeout_ms);
+	if (ret < 0) {
+		if (errno == EINTR)
+			return 0;
+		set_error(ctx, "poll: %s", strerror(errno));
+		return -1;
+	}
+
+	/* we were idle for at least a short time, flush output */
+	if ((timeout_ms > 0) && (ret == 0))
+		flush_output(ctx);
+
+	/* read one entry per active device and add it to pending queue */
+	list_for_each(node, &ctx->log_devices) {
+
+		dev = node_to_item(node, struct log_device, dlist);
+		if (!(ctx->fds[dev->idx].revents & POLLIN)) {
+			if ((ctx->fds[dev->idx].fd >= 0) &&
+			    (dev->mark_readable > 0)) {
+				/* we reached the mark for this device */
+				dev->mark_readable = 0;
+			}
 			continue;
 		}
 
-		DEBUG("core: %sdata on %s\n", force ? "force " : "", dev->path);
+		/* at least one device still has data */
+		ctx->devices_busy = 1;
 
-		do {
-			/* read as many frames as we can */
-			ret = receive_entry(dev, &entry);
-			if (ret < 0)
-				return -1;
-			if (ret > 0) {
-				entry.label = dev->label;
-				frame = alloc_frame(ctx);
-				if (render_frame(ctx, &entry, frame, 0) == 0)
-					enqueue_frame(dev, frame);
-				else
-					free_frame(ctx, frame);
-				frames++;
-			}
-		} while (ret && (dev->pending_frames < MAX_PENDING_FRAMES));
+		frame = alloc_frame(ctx);
+		if (frame == NULL)
+			continue;
+
+		ret = dev->receive_entry(dev, frame);
+		if (ret < 0) {
+			free_frame(ctx, frame);
+			return ret;
+		}
+
+		if (ret > 0) {
+			list_add_tail(&ctx->pending_queue, &frame->flist);
+			dev->pending = 1;
+			ctx->pending++;
+			frames++;
+		}
 	}
+
+	/* pull oldest frame from pending queue */
+	frame = find_oldest_pending_frame(ctx);
+	if (frame) {
+		list_remove(&frame->flist);
+		frame->dev->pending = 0;
+		ctx->pending--;
+
+		if (ctx->tail > 0) {
+			/* we only want tailing lines, push to render queue */
+			enqueue_render(ctx, frame);
+		} else {
+			/* no need to queue frame, flush it now */
+			flush_frame(ctx, frame);
+			free_frame(ctx, frame);
+		}
+	}
+
+	update_mark_reached(ctx);
+	process_tail_flush(ctx);
 
 	return frames;
 }
 
-struct log_device *log_device_create(struct ulogcat_context *ctx)
+/*
+ * Read log entries from devices and output them.
+ *
+ * Returns -1 if an error occured
+ *          0 if no additional work is needed
+ *          1 if more work is needed
+ */
+LIBULOGCAT_API int ulogcat3_process_logs(struct ulogcat3_context *ctx,
+					 int max_entries)
+{
+	int frames = 0, ret = -1, timeout_ms;
+
+	timeout_ms = (ctx->flags & ULOGCAT_FLAG_DUMP) ? 0 : -1;
+
+	do {
+		ret = process_devices(ctx, timeout_ms);
+		if (ret < 0)
+			return ret;
+		frames += ret;
+
+		/* in dump mode, stop when mark is reached */
+		if ((ctx->flags & ULOGCAT_FLAG_DUMP) && ctx->mark_reached) {
+			flush_pending_queue(ctx);
+			flush_output(ctx);
+			return 0;
+		}
+
+	} while (!max_entries || (frames < max_entries));
+
+	return ret;
+}
+
+
+struct log_device *log_device_create(struct ulogcat3_context *ctx)
 {
 	struct log_device *dev;
 
 	dev = calloc(1, sizeof(*dev));
 	if (dev) {
 		dev->ctx = ctx;
-		list_init(&dev->queue);
 		list_add_tail(&ctx->log_devices, &dev->dlist);
 		dev->idx = ctx->device_count++;
 	} else {
@@ -301,20 +424,10 @@ struct log_device *log_device_create(struct ulogcat_context *ctx)
 
 void log_device_destroy(struct log_device *dev)
 {
-	struct frame *f;
-
 	if (dev) {
 		/* remove from global list */
 		list_remove(&dev->dlist);
 		dev->ctx->device_count--;
-
-		/* destroy frame queue */
-		while (!list_empty(&dev->queue)) {
-			f = node_to_item(list_head(&dev->queue), struct frame,
-					 flist);
-			list_remove(&f->flist);
-			free(f);
-		}
 
 		if (dev->fd >= 0) {
 			close(dev->fd);
@@ -326,22 +439,52 @@ void log_device_destroy(struct log_device *dev)
 	}
 }
 
-LIBULOGCAT_API int ulogcat_init(struct ulogcat_context *ctx)
+LIBULOGCAT_API struct ulogcat3_context *
+ulogcat3_open(const struct ulogcat_opts_v3 *opts, const char **devices,
+	      int ndevices)
 {
-	int ret;
+	int ret, i, nframes;
+	struct listnode *node;
+	struct log_device *dev;
+	struct ulogcat3_context *ctx;
+
+	ctx = calloc(1, sizeof(*ctx));
+	if (ctx == NULL)
+		goto fail;
+
+	ctx->log_format = opts->opt_format;
+	ctx->flags = opts->opt_flags;
+	ctx->tail = opts->opt_tail;
+	ctx->output_fd = opts->opt_output_fd;
+	ctx->output_fp = opts->opt_output_fp;
+
+	/* default output is buffered stdout */
+	if ((ctx->output_fd < 0) && (ctx->output_fp == NULL))
+		ctx->output_fp = stdout;
+
+	list_init(&ctx->log_devices);
+	list_init(&ctx->free_queue);
+	list_init(&ctx->render_queue);
+	list_init(&ctx->pending_queue);
+
+	if (ctx->flags & ULOGCAT_FLAG_COLOR)
+		setup_colors(ctx);
+
+	/* add user specified buffers */
+	for (i = 0; i < ndevices; i++) {
+		/* skip special kmsgd buffer */
+		if (strcmp(devices[i], KMSGD_ULOG_NAME) != 0) {
+			ret = add_ulog_device(ctx, devices[i]);
+			if (ret)
+				goto fail;
+		}
+	}
 
 	/* automatically add all ulog devices if none were explicitly given */
 	if (!ctx->ulog_device_count && (ctx->flags & ULOGCAT_FLAG_ULOG)) {
 		ret = add_all_ulog_devices(ctx);
 		if (ret)
-			return -1;
-	}
-
-	/* automatically add all alog devices if none were explicitly given */
-	if (!ctx->alog_device_count && (ctx->flags & ULOGCAT_FLAG_ALOG)) {
-		ret = add_all_alog_devices(ctx);
-		if (ret)
-			return -1;
+			goto fail;
 	}
 
 	/* kernel device */
@@ -349,266 +492,51 @@ LIBULOGCAT_API int ulogcat_init(struct ulogcat_context *ctx)
 		/* kernel messages are now retrieved from a ulog device */
 		ret = add_ulog_device(ctx, KMSGD_ULOG_NAME);
 		if (ret)
-			DEBUG("cannot get kernel messages: %s\n",
-			      ulogcat_strerror(ctx));
+			goto fail;
 	}
 
 	/* we want at least one device */
 	if (ctx->device_count == 0) {
 		set_error(ctx, "could not open any device");
-		return -1;
+		goto fail;
 	}
 
-	return 0;
-}
-
-int ulogcat_do_ioctl(struct ulogcat_context *ctx)
-{
-	struct listnode *node;
-	struct log_device *dev;
-	int size, readable, ret = 0;
-
-	list_for_each(node, &ctx->log_devices) {
-		dev = node_to_item(node, struct log_device, dlist);
-
-		if (ctx->flags & ULOGCAT_FLAG_CLEAR) {
-			ret = dev->clear_buffer(dev);
-			if (ret < 0)
-				break;
-		}
-
-		if (ctx->flags & ULOGCAT_FLAG_GET_SIZE) {
-
-			ret = dev->get_size(dev, &size, &readable);
-			if (ret < 0)
-				break;
-
-			printf("%s: ring buffer is %dKb (%dKb consumed)\n",
-			       dev->path, size / 1024, readable / 1024);
-		}
-	}
-
-	return ret;
-}
-
-static void prepare_poll(struct ulogcat_context *ctx)
-{
-	struct listnode *node;
-	struct log_device *dev;
-
-	/* pause devices for which we have enough pending frames */
-	list_for_each(node, &ctx->log_devices) {
-		dev = node_to_item(node, struct log_device, dlist);
-		if (dev->pending_frames < MAX_PENDING_FRAMES) {
-			ctx->fds[dev->idx].fd = dev->fd;
-			dev->state = ACTIVE;
-		} else {
-			ctx->fds[dev->idx].fd = -1;
-			DEBUG("core: %s -> PAUSED\n", dev->path);
-			dev->state = PAUSED;
-		}
-	}
-}
-
-static int is_partial_poll(struct ulogcat_context *ctx)
-{
-	struct listnode *node;
-	struct log_device *dev;
-
-	list_for_each(node, &ctx->log_devices) {
-		dev = node_to_item(node, struct log_device, dlist);
-		if (ctx->fds[dev->idx].fd == -1)
-			return 1;
-	}
-	return 0;
-}
-
-LIBULOGCAT_API int ulogcat_process_descriptors(struct ulogcat_context *ctx,
-					       int poll_result, int *timeout_ms)
-{
-	DEBUG("core: poll(%d) --> %d\n", *timeout_ms, poll_result);
-
-	if (process_devices(ctx, 0) < 0)
-		return -1;
-
-	if ((poll_result == 0) && !is_partial_poll(ctx)) {
-		/* we have been idle long enough, flush everything */
-		flush_all_frames(ctx);
-		if (ctx->flags & ULOGCAT_FLAG_DUMP)
-			/* we are done */
-			return 1;
-		/* now that we are idle, we may sleep indefinitely */
-		*timeout_ms = -1;
-	} else {
-		/*
-		 * We are still busy; flush as much as we can, but stop
-		 * when a single frame is left in a queue, in case a
-		 * burst on that queue is coming.
-		 */
-		flush_all_frames_until_single_frame(ctx);
-		*timeout_ms = FRAME_IDLE_TIMEOUT_MS;
-	}
-
-	/* we need to continue */
-	prepare_poll(ctx);
-	return 0;
-}
-
-LIBULOGCAT_API void ulogcat_flush_descriptors(struct ulogcat_context *ctx)
-{
-	int frames, total_frames = 0;
-
-	do {
-		/* force processing of all devices */
-		frames = process_devices(ctx, 1);
-		if (frames > 0) {
-			flush_all_frames(ctx);
-			total_frames += frames;
-		}
-	} while ((frames > 0) && (total_frames < MAX_FLUSHED_FRAMES));
-}
-
-LIBULOGCAT_API int ulogcat_get_descriptor_nb(struct ulogcat_context *ctx)
-{
-	return ctx->device_count;
-}
-
-LIBULOGCAT_API int ulogcat_setup_descriptors(struct ulogcat_context *ctx,
-					     struct pollfd *fds, int nfds)
-{
-	struct listnode *node;
-	struct log_device *dev;
-
-	if (nfds < ctx->device_count)
-		return -1;
-
-	ctx->fds = fds;
-
-	/* device descriptors */
-	list_for_each(node, &ctx->log_devices) {
-		dev = node_to_item(node, struct log_device, dlist);
-		ctx->fds[dev->idx].fd = dev->fd;
-		ctx->fds[dev->idx].events = POLLIN;
-		dev->state = ACTIVE;
-	}
-
-	prepare_poll(ctx);
-	return 0;
-}
-
-int ulogcat_read_log_lines(struct ulogcat_context *ctx)
-{
-	int ret = -1, timeout_ms;
-	struct pollfd *fds;
-	int nfds;
-
-	timeout_ms = (ctx->flags & ULOGCAT_FLAG_DUMP) ? 0 : -1;
-	nfds = ulogcat_get_descriptor_nb(ctx);
-
-	fds = malloc(nfds*sizeof(*fds));
-	if (fds == NULL)
-		goto finish;
-
-	ret = ulogcat_setup_descriptors(ctx, fds, nfds);
-	if (ret < 0)
-		goto finish;
-
-	while (1) {
-
-		ret = poll(fds, nfds, timeout_ms);
-		if (ret < 0) {
-			if (errno == EINTR)
-				continue;
-			set_error(ctx, "poll: %s", strerror(errno));
-			break;
-		}
-
-		ret = ulogcat_process_descriptors(ctx, ret, &timeout_ms);
-		if (ret == 1) {
-			ret = 0;
-			break;
-		} else if (ret < 0) {
-			break;
-		}
-	}
-finish:
-	free(fds);
-	return ret;
-}
-
-LIBULOGCAT_API struct ulogcat_context *
-ulogcat_create2(const struct ulogcat_opts_v2 *opts)
-{
-	struct ulogcat_context *ctx;
-
-	ctx = calloc(1, sizeof(*ctx));
-	if (ctx == NULL)
+	/* setup file descriptors */
+	ctx->fds = malloc(ctx->device_count*sizeof(*ctx->fds));
+	if (ctx->fds == NULL)
 		goto fail;
 
-	ctx->log_format = opts->opt_format;
-
-	switch (ctx->log_format) {
-	case ULOGCAT_FORMAT_CKCM:
-		ctx->render_frame = render_ckcm_frame;
-		ctx->render_frame_size = ckcm_frame_size();
-		break;
-	case ULOGCAT_FORMAT_BINARY:
-		ctx->render_frame = render_binary_frame;
-		ctx->render_frame_size = binary_frame_size();
-		break;
-	default:
-		ctx->render_frame = render_text_frame;
-		ctx->render_frame_size = text_frame_size();
-		break;
+	list_for_each(node, &ctx->log_devices) {
+		dev = node_to_item(node, struct log_device, dlist);
+		ctx->fds[dev->idx].events = POLLIN;
 	}
 
-	ctx->flags = opts->opt_flags;
+	/* setup rendering buffer */
+	ctx->render_size = text_render_size();
+	ctx->render_buf = malloc(ctx->render_size);
+	if (ctx->render_buf == NULL)
+		goto fail;
 
-	ctx->output_fd = opts->opt_output_fd;
-	if (ctx->output_fd < 0)
-		ctx->output_fd = STDOUT_FILENO;
-	ctx->output_handler = opts->opt_output_handler;
-	ctx->output_handler_data = opts->opt_output_handler_data;
+	/* setup frame pool: allocate enough for pending and render queues */
+	nframes = ctx->tail + ctx->device_count + 1;
+	ctx->frame_pool = calloc(1, nframes*sizeof(*ctx->frame_pool));
+	if (ctx->frame_pool == NULL)
+		goto fail;
 
-	list_init(&ctx->log_devices);
-	list_init(&ctx->free_frames);
+	for (i = 0; i < nframes; i++) {
+		ctx->frame_pool[i].buf = ctx->frame_pool[i].data;
+		ctx->frame_pool[i].bufsize = sizeof(ctx->frame_pool[i].data);
+		list_add_tail(&ctx->free_queue, &ctx->frame_pool[i].flist);
+	}
 
-	if (ctx->flags & ULOGCAT_FLAG_COLOR)
-		setup_colors(ctx);
-
-	DEBUG("core: created context %p\n", ctx);
 	return ctx;
+
 fail:
-	ulogcat_destroy(ctx);
+	ulogcat3_close(ctx);
 	return NULL;
 }
 
-/* v1 interface */
-LIBULOGCAT_API struct ulogcat_context *
-ulogcat_create(const struct ulogcat_opts *opts)
-{
-	struct ulogcat_opts_v2 opts_v2;
-
-	memset(&opts_v2, 0, sizeof(opts_v2));
-
-	/* emulate v2 format */
-	opts_v2.opt_format = opts->opt_format;
-	if (opts->opt_binary)
-		opts_v2.opt_format = ULOGCAT_FORMAT_BINARY;
-
-	opts_v2.opt_flags = (ULOGCAT_FLAG_ULOG                              |
-			     (opts->opt_clear   ? ULOGCAT_FLAG_CLEAR    : 0)|
-			     (opts->opt_dump    ? ULOGCAT_FLAG_DUMP     : 0)|
-			     (opts->opt_color   ? ULOGCAT_FLAG_COLOR    : 0)|
-			     (opts->opt_getsize ? ULOGCAT_FLAG_GET_SIZE : 0));
-
-	/* tail and rotating options are not supported anymore */
-	opts_v2.opt_output_fd = opts->output_fd;
-
-	return ulogcat_create2(&opts_v2);
-}
-
-LIBULOGCAT_API void ulogcat_destroy(struct ulogcat_context *ctx)
+LIBULOGCAT_API void ulogcat3_close(struct ulogcat3_context *ctx)
 {
 	struct frame *f;
 	struct log_device *dev;
@@ -623,59 +551,53 @@ LIBULOGCAT_API void ulogcat_destroy(struct ulogcat_context *ctx)
 		}
 		ctx->device_count = 0;
 
-		/* destroy free frames */
-		while (!list_empty(&ctx->free_frames)) {
-			f = node_to_item(list_head(&ctx->free_frames),
+		/* destroy queues */
+		while (!list_empty(&ctx->render_queue)) {
+			f = node_to_item(list_head(&ctx->render_queue),
 					 struct frame, flist);
 			list_remove(&f->flist);
-			free(f);
+			free_frame(ctx, f);
+		}
+		while (!list_empty(&ctx->pending_queue)) {
+			f = node_to_item(list_head(&ctx->pending_queue),
+					 struct frame, flist);
+			list_remove(&f->flist);
+			free_frame(ctx, f);
 		}
 
 		/* close descriptors */
 		if (ctx->output_fd >= 0)
 			close(ctx->output_fd);
 
-		DEBUG("core: destroyed context %p\n", ctx);
+		if (ctx->output_fp)
+			fclose(ctx->output_fp);
 
+		free(ctx->frame_pool);
+		free(ctx->render_buf);
+		free(ctx->fds);
 		free(ctx);
 	}
 }
 
-LIBULOGCAT_API const char *ulogcat_strerror(struct ulogcat_context *ctx)
+LIBULOGCAT_API const char *ulogcat3_strerror(struct ulogcat3_context *ctx)
 {
 	return ctx->last_error;
 }
 
-LIBULOGCAT_API int ulogcat_add_device(struct ulogcat_context *ctx,
-				      const char *name)
+LIBULOGCAT_API int ulogcat3_clear(struct ulogcat3_context *ctx)
 {
 	int ret = 0;
+	struct listnode *node;
+	struct log_device *dev;
 
-	/* skip special kmsgd buffer */
-	if (strcmp(name, KMSGD_ULOG_NAME) != 0)
-		ret = add_ulog_device(ctx, name);
-
-	return ret;
-}
-
-LIBULOGCAT_API int ulogcat_add_android_device(struct ulogcat_context *ctx,
-					      const char *name)
-{
-	return add_alog_device(ctx, name);
-}
-
-LIBULOGCAT_API int ulogcat_process_logs(struct ulogcat_context *ctx)
-{
-	int ret;
-
-	ret = ulogcat_init(ctx);
-	if (ret < 0)
-		return ret;
-
-	if (ctx->flags & (ULOGCAT_FLAG_GET_SIZE|ULOGCAT_FLAG_CLEAR))
-		ret = ulogcat_do_ioctl(ctx);
-	else
-		ret = ulogcat_read_log_lines(ctx);
+	if (ctx) {
+		list_for_each(node, &ctx->log_devices) {
+			dev = node_to_item(node, struct log_device, dlist);
+			ret = dev->clear_buffer(dev);
+			if (ret < 0)
+				break;
+		}
+	}
 
 	return ret;
 }
