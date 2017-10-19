@@ -95,6 +95,14 @@ ULOG_EXPORT int ulog_raw_log(int fd, const struct ulog_raw_entry *raw)
 		return -EINVAL;
 
 	/*
+	 * Reject entries with both pid and tid equal to -1: these are used
+	 * for pseudo-messages issued by the kernel driver to report dropped
+	 * entries.
+	 */
+	if ((entry->pid == -1) && (entry->tid == -1))
+		return -EINVAL;
+
+	/*
 	 * Computing entry->len and entry->hdr_len is not necessary, since the
 	 * kernel will override those values anyway.
 	 */

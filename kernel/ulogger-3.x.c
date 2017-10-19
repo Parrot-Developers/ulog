@@ -219,8 +219,8 @@ static ssize_t do_read_drop_summary(struct ulogger_log *log,
 
 	/* build a fake log entry indicating how many entries were dropped */
 	memcpy(&summary, entry, sizeof(summary));
-	summary.pid = 0;
-	summary.tid = 0;
+	summary.pid = -1;
+	summary.tid = -1;
 
 	ret = snprintf(msgbuf, sizeof(msgbuf),
 		       /* <pname>\0<tname>\0<priority:4><tag>\0<message> */
