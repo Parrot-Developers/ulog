@@ -1,0 +1,5 @@
+#!/bin/sh
+
+this=$(realpath $0)
+export LD_LIBRARY_PATH=$(dirname $this)
+exec $*

@@ -1,0 +1,9 @@
+#!/bin/sh
+
+this=$(realpath $0)
+libulogcat=$(dirname $this)
+libulog=$(realpath ${libulogcat}/../../libulog/tests)
+
+export LD_LIBRARY_PATH=${libulogcat}:${libulog}
+
+exec $*
