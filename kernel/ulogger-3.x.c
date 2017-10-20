@@ -224,10 +224,11 @@ static ssize_t do_read_drop_summary(struct ulogger_log *log,
 
 	ret = snprintf(msgbuf, sizeof(msgbuf),
 		       /* <pname>\0<tname>\0<priority:4><tag>\0<message> */
-		       "%c%c%c%c%culog%c%d log entries dropped\n",
-		       '\0',       /* empty process name, no thread (pid=tid) */
-		       4, 0, 0, 0, /* WARN prio level */
-		       '\0',       /* tag trailing null byte */
+		       "%c%c%c%c%c%s%c%d log entries dropped\n",
+		       '\0',           /* empty pname, no thread (pid=tid) */
+		       4, 0, 0, 0,     /* WARN prio level */
+		       log->misc.name, /* tag */
+		       '\0',           /* tag trailing null byte */
 		       (int)reader->r_dropped);
 
 	if ((ret < 0) || (ret >= sizeof(msgbuf)))
