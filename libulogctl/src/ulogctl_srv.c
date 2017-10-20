@@ -25,6 +25,7 @@
 #include <netinet/in.h>
 #include <sys/un.h>
 #include <stdio.h>
+#include <stddef.h>
 
 #ifdef __linux__
 #  include <sys/prctl.h>
@@ -41,7 +42,9 @@ struct ulogctl_srv {
 	/* pomp context */
 	struct pomp_ctx         *pomp_ctx;
 	/* address */
-	struct sockaddr         addr;
+	struct sockaddr_storage addr;
+	/* address length */
+	size_t                  addrlen;
 	/* state */
 	int                     started;
 };
@@ -263,6 +266,7 @@ static void event_cb(struct pomp_ctx *ctx,
 }
 
 ULOGCTL_API int ulogctl_srv_new(struct sockaddr *addr,
+		size_t addrlen,
 		struct pomp_loop *loop,
 		struct ulogctl_srv **ret_ctr)
 {
@@ -286,7 +290,8 @@ ULOGCTL_API int ulogctl_srv_new(struct sockaddr *addr,
 	}
 
 	/* copy the address */
-	memcpy(&ulogctl->addr, addr, sizeof(*addr));
+	memcpy(&ulogctl->addr, addr, addrlen);
+	ulogctl->addrlen = addrlen;
 
 	*ret_ctr = ulogctl;
 	return 0;
@@ -307,13 +312,15 @@ ULOGCTL_API int ulogctl_srv_new_inet(int port, struct pomp_loop *loop,
 	addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	addr.sin_port = htons(port);
 
-	return ulogctl_srv_new((struct sockaddr *) &addr, loop, ret_ctr);
+	return ulogctl_srv_new((struct sockaddr *) &addr, sizeof(addr), loop,
+			ret_ctr);
 }
 
 ULOGCTL_API int ulogctl_srv_new_unix(char *sock, struct pomp_loop *loop,
 		struct ulogctl_srv **ret_ctr)
 {
 	struct sockaddr_un addr;
+	size_t addrlen;
 
 	/*
 	 * Form an AF_UNIX socket address:
@@ -322,10 +329,12 @@ ULOGCTL_API int ulogctl_srv_new_unix(char *sock, struct pomp_loop *loop,
 	addr.sun_family = AF_UNIX;
 	strncpy((addr.sun_path), sock, sizeof(addr.sun_path)-1);
 	addr.sun_path[sizeof(addr.sun_path)-1] = '\0';
+	addrlen = offsetof(struct sockaddr_un, sun_path) + strlen(sock);
 	if (addr.sun_path[0] == '@')
 		addr.sun_path[0] = '\0';
 
-	return ulogctl_srv_new((struct sockaddr *) &addr, loop, ret_ctr);
+	return ulogctl_srv_new((struct sockaddr *) &addr, addrlen, loop,
+			ret_ctr);
 }
 
 ULOGCTL_API int ulogctl_srv_new_unix_proc(struct pomp_loop *loop,
@@ -377,8 +386,8 @@ ULOGCTL_API int ulogctl_srv_start(struct ulogctl_srv *self)
 	if (self->started)
 		return -EBUSY;
 
-	res = pomp_ctx_listen(self->pomp_ctx, &self->addr,
-			sizeof(self->addr));
+	res = pomp_ctx_listen(self->pomp_ctx, (struct sockaddr *)&self->addr,
+			self->addrlen);
 	if (res < 0) {
 		LOG_ERRNO("pomp_ctx_listen", -res);
 		return res;

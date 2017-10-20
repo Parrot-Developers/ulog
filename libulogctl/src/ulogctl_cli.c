@@ -25,6 +25,7 @@
 #include <netinet/in.h>
 #include <sys/un.h>
 #include <stdio.h>
+#include <stddef.h>
 
 #include <ulogctl.h>
 #include "ulogctl_priv.h"
@@ -49,7 +50,9 @@ struct ulogctl_cli {
 	/* message to send */
 	struct pomp_msg         *msg;
 	/* address */
-	struct sockaddr         addr;
+	struct sockaddr_storage addr;
+	/* address length*/
+	size_t                  addrlen;
 	/* connection status */
 	enum ulogctl_cli_state  state;
 	/* callback */
@@ -243,22 +246,26 @@ ULOGCTL_API int ulogctl_cli_new_proc(const char *proc_name,
 		struct ulogctl_cli **ret_ctr)
 {
 	struct sockaddr_un addr;
+	size_t addrlen;
 
 	RETURN_ERR_IF_FAILED(proc_name != NULL, -EINVAL);
 
 	/* Form an AF_UNIX socket address  */
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	snprintf(addr.sun_path, sizeof(addr.sun_path), "%s%s",
+	addrlen = snprintf(addr.sun_path, sizeof(addr.sun_path), "%s%s",
 				PROCESS_SOCK_PREFIX,
 				proc_name);
+	addrlen += offsetof(struct sockaddr_un, sun_path);
 	/* Form an abstract socket address  */
 	addr.sun_path[0] = '\0';
 
-	return ulogctl_cli_new((struct sockaddr *)&addr, loop, cbs, ret_ctr);
+	return ulogctl_cli_new((struct sockaddr *)&addr, addrlen, loop, cbs,
+			ret_ctr);
 }
 
 ULOGCTL_API int ulogctl_cli_new(struct sockaddr *addr,
+		size_t addrlen,
 		struct pomp_loop *loop,
 		struct ulogctl_cli_cbs *cbs,
 		struct ulogctl_cli **ret_ctr)
@@ -295,7 +302,8 @@ ULOGCTL_API int ulogctl_cli_new(struct sockaddr *addr,
 	}
 
 	/* copy the address */
-	memcpy(&ulogctl->addr, addr, sizeof(*addr));
+	memcpy(&ulogctl->addr, addr, addrlen);
+	ulogctl->addrlen = addrlen;
 
 	*ret_ctr = ulogctl;
 	return 0;
@@ -332,9 +340,8 @@ ULOGCTL_API int ulogctl_cli_start(struct ulogctl_cli *self)
 
 	self->state = ULOGCTR_CLI_STATE_CONNECTING;
 
-	res = pomp_ctx_connect(self->pomp_ctx,
-			&self->addr,
-			sizeof(self->addr));
+	res = pomp_ctx_connect(self->pomp_ctx, (struct sockaddr *)&self->addr,
+			self->addrlen);
 	if (res < 0) {
 		LOG_ERRNO("pomp_ctx_listen", -res);
 		return res;

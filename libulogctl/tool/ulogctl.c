@@ -24,6 +24,8 @@
 #include <errno.h>
 #include <signal.h>
 #include <getopt.h>
+#include <stddef.h>
+#include <sys/un.h>
 
 #include <libpomp.h>
 #include <ulog.h>
@@ -84,19 +86,18 @@
 
 /** */
 struct app {
-	struct pomp_loop     *loop;
-	int                  stopped;
-	struct ulogctl_cli   *ulogctl_cli;
-	struct sockaddr      *addr;
-	uint32_t             addrlen;
-	int		     use_color;
+	struct pomp_loop        *loop;
+	int                     stopped;
+	struct ulogctl_cli      *ulogctl_cli;
+	struct sockaddr_storage addr;
+	uint32_t                addrlen;
+	int                     use_color;
 };
 
 static struct app s_app = {
 	.loop = NULL,
 	.stopped = 0,
 	.ulogctl_cli = NULL,
-	.addr = NULL,
 	.addrlen = 0,
 	.use_color = 0,
 };
@@ -235,6 +236,34 @@ static void sig_handler(int signum)
 		pomp_loop_wakeup(s_app.loop);
 }
 
+static int parse_addr(struct app *app, const char *arg_addr)
+{
+	struct sockaddr_un *addr_un = NULL;
+
+	memset(&app->addr, 0, sizeof(app->addr));
+	app->addrlen = sizeof(app->addr);
+
+	if (strncmp(arg_addr, "unix:", 5) == 0) {
+		/* Unix address */
+		if (app->addrlen < sizeof(struct sockaddr_un))
+			return -EINVAL;
+		addr_un = (struct sockaddr_un *)&app->addr;
+		memset(addr_un, 0, sizeof(*addr_un));
+		addr_un->sun_family = AF_UNIX;
+		strncpy(addr_un->sun_path, arg_addr + 5,
+				sizeof(addr_un->sun_path));
+		if (arg_addr[5] == '@')
+			addr_un->sun_path[0] = '\0';
+		app->addrlen = offsetof(struct sockaddr_un, sun_path) +
+				strlen(arg_addr + 5);
+
+		return 0;
+	} else {
+		return pomp_addr_parse(arg_addr, (struct sockaddr *)&app->addr,
+				&app->addrlen);
+	}
+}
+
 /**
  */
 int main(int argc, char *argv[])
@@ -251,7 +280,6 @@ int main(int argc, char *argv[])
 	char *proc_name = NULL;
 
 	const char *arg_addr = NULL;
-	struct sockaddr_storage addr_storage;
 	struct ulogctl_cli_cbs ulogctl_cbs;
 
 	struct option long_options[] = {
@@ -336,16 +364,12 @@ int main(int argc, char *argv[])
 		}
 	}
 
-
 	/* Get address */
 	if (optind < argc) {
 		arg_addr = argv[optind++];
 
 		/* Parse address */
-		memset(&addr_storage, 0, sizeof(addr_storage));
-		s_app.addr = (struct sockaddr *)&addr_storage;
-		s_app.addrlen = sizeof(addr_storage);
-		if (pomp_addr_parse(arg_addr, s_app.addr, &s_app.addrlen) < 0) {
+		if (parse_addr(&s_app, arg_addr) < 0) {
 			fprintf(stderr, "Failed to parse address : %s\n",
 					arg_addr);
 			goto out;
@@ -373,15 +397,14 @@ int main(int argc, char *argv[])
 			goto out;
 		}
 	} else {
-		res = ulogctl_cli_new(s_app.addr, s_app.loop, &ulogctl_cbs,
-			&s_app.ulogctl_cli);
+		res = ulogctl_cli_new((struct sockaddr *)&s_app.addr,
+				s_app.addrlen, s_app.loop, &ulogctl_cbs,
+				&s_app.ulogctl_cli);
 		if (res < 0) {
 			LOG_ERRNO("ulogctl_cli_new", -res);
 			goto out;
 		}
 	}
-
-
 
 	res = ulogctl_cli_start(s_app.ulogctl_cli);
 	if (res < 0) {

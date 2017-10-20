@@ -52,11 +52,13 @@ struct ulogctl_cli;
 /**
  * Create a ulog controller server.
  * @param addr : socket address of the ulogctl server.
+ * @param addrlen: socket address length.
  * @param loop : pomp loop.
  * @param ret_ctr : will receive the controller object.
  * @return 0 in case of success, negative errno value in case of error.
  */
 int ulogctl_srv_new(struct sockaddr *addr,
+		size_t addrlen,
 		struct pomp_loop *loop,
 		struct ulogctl_srv **ret_ctr);
 
@@ -150,12 +152,14 @@ struct ulogctl_cli_cbs {
 /**
  * Create a ulog controller client.
  * @param addr : address of the ulogctl server.
+ * @param addrlen: address length.
  * @param loop : pomp loop.
  * @param cbs : request callbacks.
  * @param ret_ctr : will receive the controller object.
  * @return 0 in case of success, negative errno value in case of error.
  */
 int ulogctl_cli_new(struct sockaddr *addr,
+		size_t addrlen,
 		struct pomp_loop *loop,
 		struct ulogctl_cli_cbs *cbs,
 		struct ulogctl_cli **ret_ctr);
