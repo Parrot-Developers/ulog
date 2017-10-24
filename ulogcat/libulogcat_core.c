@@ -489,10 +489,18 @@ ulogcat3_open(const struct ulogcat_opts_v3 *opts, const char **devices,
 
 	/* kernel device */
 	if (ctx->flags & ULOGCAT_FLAG_KLOG) {
-		/* kernel messages are now retrieved from a ulog device */
-		ret = add_ulog_device(ctx, KMSGD_ULOG_NAME);
-		if (ret)
-			goto fail;
+		/* on recent kernels, read records directly from /dev/kmsg */
+		ret = add_klog_device(ctx);
+		if (ret) {
+			/*
+			 * On older kernels, read messages from /dev/ulog_kmsgd,
+			 * assuming kmsgd daemon copies kernel messages to that
+			 * ulog device.
+			 */
+			ret = add_ulog_device(ctx, KMSGD_ULOG_NAME);
+			if (ret)
+				goto fail;
+		}
 	}
 
 	/* we want at least one device */

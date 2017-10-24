@@ -38,6 +38,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <sys/klog.h>
 
 #include <ulog.h>
 #include <ulogger.h>
@@ -144,6 +145,7 @@ void set_error(struct ulogcat3_context *ctx, const char *fmt, ...);
 
 int add_ulog_device(struct ulogcat3_context *ctx, const char *name);
 void kmsgd_fix_entry(struct ulog_entry *entry);
+int add_klog_device(struct ulogcat3_context *ctx);
 
 int add_all_ulog_devices(struct ulogcat3_context *ctx);
 

@@ -13,11 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * libulogcat, a reader library for logger/ulogger/kernel log buffers
+ * libulogcat, a reader library for ulogger/kernel log buffers
  *
  */
 
 #include "libulogcat_private.h"
+
+/* Private structure for managing klog quirks */
+struct klog_device {
+	ssize_t   first_read_len;
+	uint8_t   buf[BUFSIZ];
+};
 
 static void parse_prefix(struct ulog_entry *entry)
 {
@@ -82,6 +88,7 @@ notimestamp:
 	entry->tv_nsec = 0;
 }
 
+/* This function is used when reading kernel messages from a ulog device */
 void kmsgd_fix_entry(struct ulog_entry *entry)
 {
 	parse_prefix(entry);
@@ -94,4 +101,232 @@ void kmsgd_fix_entry(struct ulog_entry *entry)
 	entry->tag = "KERNEL";
 	entry->is_binary = 0;
 	entry->color = 0;
+}
+
+static int klog_read_entry(struct log_device *dev, struct frame *frame)
+{
+	int ret = -1;
+	struct klog_device *klog = dev->priv;
+
+	/* is this the first read ? */
+	if (klog->first_read_len >= 0) {
+
+		if (frame->bufsize < klog->first_read_len+1) {
+			if (frame->buf == frame->data) {
+				/* enlarge frame buffer size */
+				frame->buf = malloc(klog->first_read_len+1);
+				frame->bufsize = klog->first_read_len+1;
+			} else {
+				/* enlarged frame buffer still too small */
+				return -1;
+			}
+		}
+		if (frame->buf == NULL)
+			return -1;
+
+		memcpy(frame->buf, klog->buf, klog->first_read_len);
+		ret = klog->first_read_len;
+		/* make sure buffer is null-terminated */
+		frame->buf[ret] = '\0';
+		klog->first_read_len = -1;
+		return ret;
+	}
+
+	/* read exactly one kmsg entry */
+	ret = read(dev->fd, frame->buf, frame->bufsize-1);
+	if ((ret < 0) && (errno == EINVAL) && (frame->buf == frame->data)) {
+		/* regular frame buffer is too small, allocate extra memory */
+		frame->buf = malloc(BUFSIZ);
+		if (frame->buf == NULL) {
+			set_error(dev->ctx, "malloc: %s", strerror(errno));
+			return -1;
+		}
+		frame->bufsize = BUFSIZ;
+		/* retry with larger buffer */
+		ret = read(dev->fd, frame->buf, frame->bufsize-1);
+	}
+
+	if (ret < 0) {
+		/* EPIPE can be returned when message has been overwritten */
+		if ((errno == EINTR) || (errno == EAGAIN) || (errno == EPIPE))
+			return 0;
+		set_error(dev->ctx, "read(%s): %s", dev->path, strerror(errno));
+		return -1;
+	}
+
+	/* make sure buffer is null-terminated */
+	frame->buf[ret] = '\0';
+	return ret;
+}
+
+/*
+ * Read exactly one kernel entry.
+ *
+ * Returns -1 if an error occured
+ *          0 if we received a signal and need to retry
+ *          1 if we successfully read one entry
+ */
+static int klog_receive_entry(struct log_device *dev, struct frame *frame)
+{
+	int ret;
+	long long int usec;
+	char *saveptr = NULL, *prio, *timestamp;
+	struct ulog_entry *entry = &frame->entry;
+
+	ret = klog_read_entry(dev, frame);
+	if (ret <= 0)
+		return ret;
+	/*
+	 * We need a timestamp now: partially parse entry (see
+	 * klog_parse_entry() for details.
+	 */
+	prio = strtok_r((char *)frame->buf, ",", &saveptr);
+	(void)strtok_r(NULL, ",", &saveptr);  /* skip seqnum */
+	timestamp = strtok_r(NULL, ",", &saveptr);
+
+	if (!prio || !timestamp)
+		return -1;
+
+	usec = strtoll(timestamp, NULL, 10);
+	entry->priority = (int)(strtol(prio, NULL, 10) & 0x7L);
+	entry->tv_sec = usec/1000000ULL;
+	entry->tv_nsec = (usec - entry->tv_sec*1000000ULL)*1000;
+	timestamp += strlen(timestamp) + 1;
+	entry->message = strchr(timestamp, ';');
+	if (!entry->message)
+		return -1;
+
+	frame->stamp = usec;
+	/* attach frame to device */
+	frame->dev = dev;
+	dev->mark_readable -= ret;
+
+	return 1;
+}
+
+static int hex2dec(char x)
+{
+	return (isdigit(x) ? x - '0' : tolower(x) - 'a' + 10) & 0xf;
+}
+
+/*
+ * Parse a kmsg entry.
+ *
+ * Fields are separated by ',', and a ';' separator marks the beginning of the
+ * message. Message non-printable bytes are escaped C-style (\xNN).
+ *
+ * Example:
+ *  7,160,424069,-;pci_root PNP0A03:00: host bridge window [io  0x0000-0x0cf7]
+ *  SUBSYSTEM=acpi
+ *  DEVICE=+acpi:PNP0A03:00
+ *  6,339,5140900,-;NET: Registered protocol family 10
+ *  30,340,5690716,-;udevd[80]: starting version 181
+ */
+static int klog_parse_entry(struct frame *frame)
+{
+	char *p, *q;
+	struct ulog_entry *entry = &frame->entry;
+
+	/* we already partially parsed the record, continue... */
+	entry->message++;
+	p = strchr(entry->message, '\n');
+	if (p == NULL)
+		return -1;
+
+	*p = '\0';
+	entry->len = p - entry->message + 1;
+	entry->pid = 0;
+	entry->tid = 0;
+	entry->pname = "";
+	entry->tname = "";
+	entry->tag = "KERNEL";
+	entry->is_binary = 0;
+	entry->color = 0;
+
+	/* unescape message in place */
+	p = strchr(entry->message, '\\');
+	if (p) {
+		q = p;
+		while (p) {
+			/* unescape \xNN sequence */
+			if ((p[0] == '\\') &&
+			    (p[1] == 'x')  &&
+			    isxdigit(p[2]) &&
+			    isxdigit(p[3])) {
+				*q++ = (hex2dec(p[2]) << 4)|hex2dec(p[3]);
+				p += 4;
+			} else {
+				*q++ = *p++;
+			}
+		}
+		*q = '\0';
+		entry->len = q - entry->message + 1;
+	}
+
+	return 0;
+}
+
+static int klog_clear_buffer(struct log_device *dev)
+{
+	/*
+	 * Not supported. Action SYSLOG_ACTION_CLEAR does not really clear
+	 * the buffer.
+	 */
+	set_error(dev->ctx, "clear not supported on kernel ring buffer\n");
+	return -1;
+}
+
+int add_klog_device(struct ulogcat3_context *ctx)
+{
+	struct klog_device *klog = NULL;
+	struct log_device *dev = NULL;
+
+	dev = log_device_create(ctx);
+	if (dev == NULL)
+		goto fail;
+
+	snprintf(dev->path, sizeof(dev->path), "/dev/kmsg");
+
+	/*
+	 * Even if we successfully open the device, kernel may still not
+	 * support reads from /dev/kmsg (typically returning -EINVAL on read());
+	 * the only way to know for sure is to read at least once...
+	 */
+	dev->fd = open(dev->path, O_RDONLY|O_NONBLOCK);
+	if (dev->fd < 0) {
+		set_error(ctx, "open %s: %s", dev->path, strerror(errno));
+		goto fail;
+	}
+
+	klog = dev->priv = malloc(sizeof(*klog));
+	if (klog == NULL)
+		goto fail;
+
+	klog->first_read_len = read(dev->fd, klog->buf, sizeof(klog->buf));
+	if (klog->first_read_len < 0)
+		/* OK, assume this kernel is too old */
+		goto fail;
+
+	dev->receive_entry = klog_receive_entry;
+	dev->parse_entry = klog_parse_entry;
+	dev->clear_buffer = klog_clear_buffer;
+	dev->label = 'K';
+
+	/*
+	 * We cannot get a reliable readable size (because /dev/kmsg does some
+	 * formatting on messages). Instead we use the total buffer size and
+	 * multiply it by a factor to get something larger than the readable
+	 * size.
+	 */
+	dev->mark_readable = 2*(ssize_t)klogctl(10/*SYSLOG_ACTION_SIZE_BUFFER*/,
+						NULL, 0);
+	if (dev->mark_readable < 0) {
+		set_error(dev->ctx, "klogctl(10): %s", strerror(errno));
+		goto fail;
+	}
+
+	return 0;
+fail:
+	log_device_destroy(dev);
+	return -1;
 }
