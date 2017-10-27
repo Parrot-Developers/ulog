@@ -234,16 +234,20 @@ ULOG_EXPORT int ulog_foreach(
 
 	if (cb == NULL)
 		return -EINVAL;
-
+	/*
+	 * We can safely traverse the list without holding ctrl.lock, as nodes
+	 * are never deleted.
+	 */
 	pthread_mutex_lock(&ctrl.lock);
+	p = ctrl.cookie_list;
+	pthread_mutex_unlock(&ctrl.lock);
 
-	for (p = ctrl.cookie_list; p; p = p->next) {
+	while (p) {
 		/* ignore the default cookie */
 		if (p != &__ulog_default_cookie)
 			cb(p, userdata);
+		p = p->next;
 	}
-
-	pthread_mutex_unlock(&ctrl.lock);
 
 	return 0;
 }
