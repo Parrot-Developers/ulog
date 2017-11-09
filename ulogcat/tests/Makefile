@@ -22,7 +22,7 @@ HEADERS	:= \
 	../../libulog/include/ulograw.h \
 	../include/libulogcat.h
 
-all: libulogcat.so ulogcat ulogger
+all: libulogcat.so ulogcat ulogger libulogcat_test
 
 libulogcat.so: $(SOURCES) $(HEADERS) $(ULOG)/tests/libulog.so
 	$(CC) $(CFLAGS) $(SOURCES) -o $@ $(ULOG)/tests/libulog.so $(DYNFLAGS)
@@ -30,8 +30,11 @@ libulogcat.so: $(SOURCES) $(HEADERS) $(ULOG)/tests/libulog.so
 ulogcat: ../ulogcat.c libulogcat.so
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
+libulogcat_test: libulogcat_test.c libulogcat.so
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
+
 ulogger: ../../ulogger/ulogger.c $(ULOG)/tests/libulog.so
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 clean:
-	-rm -f libulogcat.so ulogcat ulogger
+	-rm -f libulogcat.so ulogcat ulogger libulogcat_test

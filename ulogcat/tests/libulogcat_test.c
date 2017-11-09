@@ -56,6 +56,19 @@ ULOG_DECLARE_TAG(libulogcat_test);
 
 #define KMSGD_WAIT_US 10000
 
+static unsigned long long stamp;
+
+/* Generate unique timestamp */
+static void init_stamp(void)
+{
+	int ret;
+	struct timespec ts;
+
+	ret = clock_gettime(CLOCK_MONOTONIC, &ts);
+	assert(ret == 0);
+	stamp = ts.tv_nsec/1000ULL + ts.tv_sec*1000000ULL;
+}
+
 static void ulog(const char *buf)
 {
 	ULOG_STR(ULOG_INFO, buf);
@@ -63,13 +76,15 @@ static void ulog(const char *buf)
 
 static void klog(const char *buf)
 {
-	int fd;
+	int ret, fd;
 
 	fd = open("/dev/kmsg", O_WRONLY);
-	if (fd >= 0) {
-		write(fd, buf, strlen(buf));
-		close(fd);
-	}
+	if (fd < 0)
+		INFO("open(/dev/kmsg): %s\n", strerror(errno));
+	assert(fd >= 0);
+	ret = write(fd, buf, strlen(buf));
+	assert(ret == (int)strlen(buf));
+	close(fd);
 }
 
 static void sendlog(unsigned int flags, const char *fmt, ...)
@@ -92,28 +107,39 @@ static void run(struct ulogcat_opts_v3 *opts)
 	int ret;
 	struct ulogcat3_context *ctx;
 
-	ctx = ulogcat3_create(opts);
+	ctx = ulogcat3_open(opts, NULL, 0);
 	assert(ctx);
 
-	ret = ulogcat3_process_logs(ctx);
-	if (ret) {
-		INFO("libulogcat: %s\n", ulogcat_strerror(ctx));
-		assert(!(ret));
-	}
+	ret = ulogcat3_process_logs(ctx, 0);
+	assert(ret == 0);
 
-	ulogcat_destroy(ctx);
+	ulogcat3_close(ctx);
 }
 
 static void clear(unsigned int flags)
 {
-	struct ulogcat_opts_v2 opts;
+	int ret;
+	struct ulogcat_opts_v3 opts;
+	struct ulogcat3_context *ctx;
+
+	/* clear not supported anymore on kernel buffer */
+	flags &= ~ULOGCAT_FLAG_KLOG;
+	if (!flags)
+		return;
 
 	TRACE("flags = 0x%x", flags);
 
 	memset(&opts, 0, sizeof(opts));
 	opts.opt_output_fd = -1;
-	opts.opt_flags = ULOGCAT_FLAG_CLEAR|flags;
-	run(&opts);
+	opts.opt_flags = flags;
+
+	ctx = ulogcat3_open(&opts, NULL, 0);
+	assert(ctx);
+
+	ret = ulogcat3_clear(ctx);
+	assert(ret == 0);
+
+	ulogcat3_close(ctx);
 }
 
 static void test_ioctl(void)
@@ -171,6 +197,44 @@ static int grep_tmp_file(const char *pattern, int binary)
 	return match;
 }
 
+static void check_label_tmp_file(char label)
+{
+	FILE *fp;
+	static char line[4096];
+
+	fp = fopen(TMP_FILENAME, "r");
+	assert(fp);
+
+	while (fgets(line, sizeof(line), fp)) {
+		if ((line[0] != label) && (line[0] != '-')) {
+			INFO("bad line: '%s'\n", line);
+			assert(0);
+		}
+	}
+
+	fclose(fp);
+}
+
+static int count_lines_tmp_file(void)
+{
+	FILE *fp;
+	int count = 0;
+	char line[512];
+
+	fp = fopen(TMP_FILENAME, "r");
+	assert(fp);
+
+	while (fgets(line, sizeof(line), fp)) {
+		if (line[0] == '-')
+			continue;
+		count++;
+	}
+
+	fclose(fp);
+
+	return count;
+}
+
 static void clean_tmp_file(void)
 {
 	(void)remove(TMP_FILENAME);
@@ -195,7 +259,7 @@ static void run_format(unsigned int flags, unsigned int fmt, int binary)
 	int matches, expected_matches;
 	static int count;
 	struct ulogcat_opts_v3 opts;
-	char tag[64];
+	char label, tag[64];
 
 	TRACE("flags = 0x%x, fmt = %u binary=%d", flags, fmt, binary);
 
@@ -207,7 +271,8 @@ static void run_format(unsigned int flags, unsigned int fmt, int binary)
 	opts.opt_format = fmt;
 
 	/* make a unique tag for matching lines */
-	snprintf(tag, sizeof(tag), "libulogcat-test-%u-%d", fmt, count++);
+	snprintf(tag, sizeof(tag), "libulogcat-test-%u-%llx-%d", fmt, stamp,
+		 count++);
 
 	sendlog(flags & LOG_MASK, "Hello from %s, tag=%s\n", __func__, tag);
 
@@ -224,6 +289,17 @@ static void run_format(unsigned int flags, unsigned int fmt, int binary)
 	expected_matches = weight(flags & LOG_MASK);
 	assert(matches == expected_matches);
 
+	/* check label */
+	if (flags & ULOGCAT_FLAG_SHOW_LABEL) {
+		label = '?';
+		if (flags & ULOGCAT_FLAG_ULOG)
+			label = 'U';
+		else if (flags & ULOGCAT_FLAG_KLOG)
+			label = 'K';
+		assert((label == 'U') || (label == 'K'));
+		check_label_tmp_file(label);
+	}
+
 	clean_tmp_file();
 }
 
@@ -238,19 +314,17 @@ static void test_all_formats(unsigned int flags)
 
 static void test_format(void)
 {
-	unsigned int flags;
-
 	test_all_formats(ULOGCAT_FLAG_ULOG);
 	test_all_formats(ULOGCAT_FLAG_KLOG);
 	test_all_formats(ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_ULOG);
 }
 
-#define MAGIC ((void *)0x12345678)
-
 static void test_label(void)
 {
-	run(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_SHOW_LABEL);
-	run(ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_SHOW_LABEL);
+	run_format(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_SHOW_LABEL,
+		   ULOGCAT_FORMAT_SHORT, 0);
+	run_format(ULOGCAT_FLAG_KLOG|ULOGCAT_FLAG_SHOW_LABEL,
+		   ULOGCAT_FORMAT_SHORT, 0);
 }
 
 static void test_color(void)
@@ -263,7 +337,7 @@ static void run_lines(unsigned int flags, int lines)
 {
 	static int count;
 	int matches, expected_matches, i;
-	struct ulogcat_opts_v2 opts;
+	struct ulogcat_opts_v3 opts;
 	char tag[64];
 
 	TRACE("flags = 0x%x lines=%d", flags, lines);
@@ -276,7 +350,7 @@ static void run_lines(unsigned int flags, int lines)
 	opts.opt_format = ULOGCAT_FORMAT_LONG;
 
 	/* make a unique tag for matching lines */
-	snprintf(tag, sizeof(tag), "libulogcat-test-%d", count++);
+	snprintf(tag, sizeof(tag), "libulogcat-test-%llx-%d", stamp, count++);
 
 	for (i = 0; i < lines; i++)
 		sendlog(flags & LOG_MASK, "Hello from %s, tag=%s\n", __func__,
@@ -304,14 +378,63 @@ static void test_lines(void)
 	run_lines(ULOGCAT_FLAG_ULOG|ULOGCAT_FLAG_KLOG, 1000);
 }
 
+static void run_tail(unsigned int flags, int tail, int lines)
+{
+	int count, i;
+	struct ulogcat_opts_v3 opts;
+
+	TRACE("flags = 0x%x tail=%d lines=%d", flags, tail, lines);
+
+	clear(flags & LOG_MASK);
+
+	memset(&opts, 0, sizeof(opts));
+	clean_tmp_file();
+	opts.opt_output_fd = open_tmp_file();
+	opts.opt_flags = ULOGCAT_FLAG_DUMP|flags;
+	opts.opt_format = ULOGCAT_FORMAT_LONG;
+	opts.opt_tail = tail;
+
+	/* fill buffer */
+	for (i = 0; i < lines; i++)
+		sendlog(flags & LOG_MASK, "Hello from %s #%d\n", __func__, i);
+
+	/* leave some time for kmsgd to copy message */
+	if (flags & ULOGCAT_FLAG_KLOG)
+		usleep(KMSGD_WAIT_US);
+
+	run(&opts);
+
+	close(opts.opt_output_fd);
+
+	/* count number of lines appearing in output */
+	count = count_lines_tmp_file();
+	TRACE("tmp file has %d lines\n", count);
+
+	if (tail > lines)
+		assert(count == lines*weight(flags & LOG_MASK));
+	else
+		assert(count == tail*weight(flags & LOG_MASK));
+
+	clean_tmp_file();
+}
+
+static void test_tail(void)
+{
+	run_tail(ULOGCAT_FLAG_ULOG, 100, 10);
+	run_tail(ULOGCAT_FLAG_ULOG, 10, 100);
+	run_tail(ULOGCAT_FLAG_ULOG, 1000, 1000);
+}
+
 int main(int argc, char *argv[])
 {
 	INFO("STARTING TESTS...\n");
+	init_stamp();
 	test_ioctl();
 	test_format();
 	test_label();
 	test_color();
 	test_lines();
+	test_tail();
 	INFO("SUCCESS !\n");
 
 	return 0;
