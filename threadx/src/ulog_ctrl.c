@@ -51,7 +51,10 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 	if (!ctrl.shd_enabled)
 		return;
 
-	blob.prio = (unsigned char)(prio & ULOG_PRIO_LEVEL_MASK);
+	if (prio == 0)
+		blob.prio = ULOG_INFO;
+	else
+		blob.prio = (unsigned char)(prio & ULOG_PRIO_LEVEL_MASK);
 
 	/* Get thread name */
 	/* TODO Get the thread name in ambalog to display it on console ? */
