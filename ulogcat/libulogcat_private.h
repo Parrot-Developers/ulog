@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * libulogcat, a reader library for logger/ulogger/kernel log buffers
+ * libulogcat, a reader library for ulogger/kernel log buffers
  *
  */
 
@@ -55,6 +55,8 @@
  * as a regular ulog buffer
  */
 #define KMSGD_ULOG_NAME "kmsgd"
+
+#define INFO(...)        fprintf(stderr, "libulogcat: " __VA_ARGS__)
 
 /*#define DEBUG(...)       fprintf(stderr, __VA_ARGS__)*/
 #define DEBUG(...)       do {} while (0)
@@ -136,12 +138,10 @@ struct ulogcat3_context {
 	int                      render_len;
 	int                      ulog_device_count;
 	int                      mark_reached;
-	char                     last_error[128];
 };
 
 struct log_device *log_device_create(struct ulogcat3_context *ctx);
 void log_device_destroy(struct log_device *dev);
-void set_error(struct ulogcat3_context *ctx, const char *fmt, ...);
 
 int add_ulog_device(struct ulogcat3_context *ctx, const char *name);
 void kmsgd_fix_entry(struct ulog_entry *entry);

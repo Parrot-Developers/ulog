@@ -13,10 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * ulogcat, a reader for ulogger/logger/klog messages.
- *
- * A few bits are derived from Android logcat.
- *
+ * ulogcat, a reader for ulogger/klog messages.
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -40,11 +37,6 @@ struct options {
 	char                  **ulog_devices;
 	int                     ulog_ndevices;
 };
-
-static void show_error(struct ulogcat3_context *ctx)
-{
-	INFO("libulogcat: %s\n", ulogcat3_strerror(ctx));
-}
 
 static void show_usage(const char *cmd)
 {
@@ -184,11 +176,7 @@ static int process_logs(struct ulogcat3_context *ctx, int max_entries,
 
 		/* this will block until some entries are available */
 		ret = ulogcat3_process_logs(ctx, max_entries);
-		if (ret < 0) {
-			show_error(ctx);
-			break;
-		} else if (ret == 0)
-			/* no more processing needed (dump mode) */
+		if (ret <= 0)
 			break;
 
 		/* optionally throttle CPU usage */
@@ -218,8 +206,6 @@ int main(int argc, char **argv)
 	/* get specific actions (clear) out of the way */
 	if (op.opt_clear) {
 		ret = ulogcat3_clear(ctx);
-		if (ret)
-			show_error(ctx);
 		goto finish;
 	}
 

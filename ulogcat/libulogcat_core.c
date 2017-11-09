@@ -13,20 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * libulogcat, a reader library for logger/ulogger/kernel log buffers
+ * libulogcat, a reader library for ulogger/kernel log buffers
  *
  */
 
 #include "libulogcat_private.h"
-
-void set_error(struct ulogcat3_context *ctx, const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vsnprintf(ctx->last_error, sizeof(ctx->last_error), fmt, ap);
-	va_end(ap);
-}
 
 static void output_rendered(struct ulogcat3_context *ctx)
 {
@@ -36,8 +27,7 @@ static void output_rendered(struct ulogcat3_context *ctx)
 		ret = fwrite(ctx->render_buf, ctx->render_len, 1,
 			     ctx->output_fp);
 		if (ret != 1)
-			set_error(ctx, "cannot output frame: %s",
-				  strerror(errno));
+			INFO("cannot output frame: %s\n", strerror(errno));
 	} else if (ctx->output_fd >= 0) {
 		do {
 			ret = write(ctx->output_fd,
@@ -309,7 +299,7 @@ static int process_devices(struct ulogcat3_context *ctx, int timeout_ms)
 	if (ret < 0) {
 		if (errno == EINTR)
 			return 0;
-		set_error(ctx, "poll: %s", strerror(errno));
+		INFO("poll: %s\n", strerror(errno));
 		return -1;
 	}
 
@@ -417,7 +407,7 @@ struct log_device *log_device_create(struct ulogcat3_context *ctx)
 		list_add_tail(&ctx->log_devices, &dev->dlist);
 		dev->idx = ctx->device_count++;
 	} else {
-		set_error(ctx, "cannot allocate device: %s", strerror(errno));
+		INFO("cannot allocate device: %s\n", strerror(errno));
 	}
 	return dev;
 }
@@ -505,7 +495,7 @@ ulogcat3_open(const struct ulogcat_opts_v3 *opts, const char **devices,
 
 	/* we want at least one device */
 	if (ctx->device_count == 0) {
-		set_error(ctx, "could not open any device");
+		INFO("could not open any device\n");
 		goto fail;
 	}
 
@@ -585,11 +575,6 @@ LIBULOGCAT_API void ulogcat3_close(struct ulogcat3_context *ctx)
 		free(ctx->fds);
 		free(ctx);
 	}
-}
-
-LIBULOGCAT_API const char *ulogcat3_strerror(struct ulogcat3_context *ctx)
-{
-	return ctx->last_error;
 }
 
 LIBULOGCAT_API int ulogcat3_clear(struct ulogcat3_context *ctx)

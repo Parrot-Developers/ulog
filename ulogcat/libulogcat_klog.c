@@ -111,7 +111,7 @@ static int klog_read_entry(struct log_device *dev, struct frame *frame)
 	/* is this the first read ? */
 	if (klog->first_read_len >= 0) {
 
-		if (frame->bufsize < klog->first_read_len+1) {
+		if (frame->bufsize < (size_t)(klog->first_read_len+1)) {
 			if (frame->buf == frame->data) {
 				/* enlarge frame buffer size */
 				frame->buf = malloc(klog->first_read_len+1);
@@ -138,7 +138,7 @@ static int klog_read_entry(struct log_device *dev, struct frame *frame)
 		/* regular frame buffer is too small, allocate extra memory */
 		frame->buf = malloc(BUFSIZ);
 		if (frame->buf == NULL) {
-			set_error(dev->ctx, "malloc: %s", strerror(errno));
+			INFO("malloc: %s\n", strerror(errno));
 			return -1;
 		}
 		frame->bufsize = BUFSIZ;
@@ -150,7 +150,7 @@ static int klog_read_entry(struct log_device *dev, struct frame *frame)
 		/* EPIPE can be returned when message has been overwritten */
 		if ((errno == EINTR) || (errno == EAGAIN) || (errno == EPIPE))
 			return 0;
-		set_error(dev->ctx, "read(%s): %s", dev->path, strerror(errno));
+		INFO("read(%s): %s\n", dev->path, strerror(errno));
 		return -1;
 	}
 
@@ -272,7 +272,7 @@ static int klog_clear_buffer(struct log_device *dev)
 	 * Not supported. Action SYSLOG_ACTION_CLEAR does not really clear
 	 * the buffer.
 	 */
-	set_error(dev->ctx, "clear not supported on kernel ring buffer\n");
+	INFO("clear not supported on kernel ring buffer\n");
 	return -1;
 }
 
@@ -294,7 +294,7 @@ int add_klog_device(struct ulogcat3_context *ctx)
 	 */
 	dev->fd = open(dev->path, O_RDONLY|O_NONBLOCK);
 	if (dev->fd < 0) {
-		set_error(ctx, "open %s: %s", dev->path, strerror(errno));
+		INFO("open %s: %s\n", dev->path, strerror(errno));
 		goto fail;
 	}
 
@@ -321,7 +321,8 @@ int add_klog_device(struct ulogcat3_context *ctx)
 	dev->mark_readable = 2*(ssize_t)klogctl(10/*SYSLOG_ACTION_SIZE_BUFFER*/,
 						NULL, 0);
 	if (dev->mark_readable < 0) {
-		set_error(dev->ctx, "klogctl(10): %s", strerror(errno));
+		INFO("klogctl(SYSLOG_ACTION_SIZE_BUFFER): %s\n",
+		     strerror(errno));
 		goto fail;
 	}
 

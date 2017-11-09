@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * libulogcat, a reader library for logger/ulogger/kernel log buffers
+ * libulogcat, a reader library for ulogger/kernel log buffers
  *
  */
 
@@ -38,7 +38,7 @@ static int ulog_receive_entry(struct log_device *dev, struct frame *frame)
 		/* regular frame buffer is too small, allocate extra memory */
 		frame->buf = malloc(ULOGGER_ENTRY_MAX_LEN);
 		if (frame->buf == NULL) {
-			set_error(dev->ctx, "malloc: %s", strerror(errno));
+			INFO("malloc: %s\n", strerror(errno));
 			return -1;
 		}
 		frame->bufsize = ULOGGER_ENTRY_MAX_LEN;
@@ -49,18 +49,18 @@ static int ulog_receive_entry(struct log_device *dev, struct frame *frame)
 	if (ret < 0) {
 		if ((errno == EINTR) || (errno == EAGAIN))
 			return 0;
-		set_error(dev->ctx, "read(%s): %s", dev->path, strerror(errno));
+		INFO("read(%s): %s\n", dev->path, strerror(errno));
 		return -1;
 	} else if (ret == 0) {
-		set_error(dev->ctx, "read(%s): unexpected EOF", dev->path);
+		INFO("read(%s): unexpected EOF\n", dev->path);
 		return -1;
 	}
 
 	/* sanity check */
 	raw = (struct ulogger_entry *)frame->buf;
 	if (raw->len != ret-header_sz) {
-		set_error(dev->ctx, "read(%s): unexpected length %d",
-			  dev->path, ret-header_sz);
+		INFO("read(%s): unexpected length %d\n",
+		     dev->path, ret-header_sz);
 		return -1;
 	}
 
@@ -107,15 +107,14 @@ static int ulog_clear_buffer(struct log_device *dev)
 
 	fd = open(dev->path, O_WRONLY|O_NONBLOCK);
 	if (fd < 0) {
-		set_error(dev->ctx, "cannot open %s: %s", dev->path,
-			  strerror(errno));
+		INFO("cannot open %s: %s\n", dev->path, strerror(errno));
 		goto fail;
 	}
 
 	ret = ioctl(fd, ULOGGER_FLUSH_LOG);
 	if (ret < 0) {
-		set_error(dev->ctx, "ioctl(%s, ULOGGER_FLUSH_LOG): %s",
-			  dev->path, strerror(errno));
+		INFO("ioctl(%s, ULOGGER_FLUSH_LOG): %s\n",
+		     dev->path, strerror(errno));
 	}
 fail:
 	if (fd >= 0)
@@ -135,8 +134,7 @@ int add_ulog_device(struct ulogcat3_context *ctx, const char *name)
 
 	dev->fd = open(dev->path, O_RDONLY|O_NONBLOCK);
 	if (dev->fd < 0) {
-		set_error(ctx, "cannot open %s: %s", dev->path,
-			  strerror(errno));
+		INFO("cannot open %s: %s\n", dev->path, strerror(errno));
 		goto fail;
 	}
 
@@ -157,8 +155,8 @@ int add_ulog_device(struct ulogcat3_context *ctx, const char *name)
 	/* get amount of data already present in buffer */
 	dev->mark_readable = (ssize_t)ioctl(dev->fd, ULOGGER_GET_LOG_LEN);
 	if (dev->mark_readable < 0) {
-		set_error(dev->ctx, "ioctl(%s, ULOGGER_GET_LOG_LEN): %s",
-			  dev->path, strerror(errno));
+		INFO("ioctl(%s, ULOGGER_GET_LOG_LEN): %s\n",
+		     dev->path, strerror(errno));
 		goto fail;
 	}
 

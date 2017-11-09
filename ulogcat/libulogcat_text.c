@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * libulogcat, a reader library for logger/ulogger/kernel log buffers
+ * libulogcat, a reader library for ulogger/kernel log buffers
  *
  */
 

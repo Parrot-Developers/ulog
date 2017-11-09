@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * libulogcat, a reader library for logger/ulogger/kernel log buffers
+ * libulogcat, a reader library for ulogger/kernel log buffers
  *
  */
 
@@ -72,7 +72,8 @@ LIBULOGCAT_API void ulogcat_destroy(struct ulogcat_context *v1)
 
 LIBULOGCAT_API const char *ulogcat_strerror(struct ulogcat_context *v1)
 {
-	return ulogcat3_strerror(v1->ctx);
+	/* not supported anymore */
+	return "";
 }
 
 LIBULOGCAT_API int ulogcat_add_device(struct ulogcat_context *v1,
