@@ -64,8 +64,6 @@ static void show_usage(const char *cmd)
 		"results are\n"
 		"                  interleaved. The default is to show all "
 		"buffers.\n"
-		"                  contains the directory part of <path> is "
-		"used.\n"
 		"  -C              Use ANSI color sequences to show priority "
 		"levels; you can customize colors\n"
 		"                  used for each level with environment "
