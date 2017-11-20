@@ -64,6 +64,17 @@ static int ulog_receive_entry(struct log_device *dev, struct frame *frame)
 		return -1;
 	}
 
+	/*
+	 * Extract fields from raw data: we would like to postpone this until
+	 * rendering, but at the same time we need to filter out binary entries
+	 * to correctly implement option -t (tail).
+	 */
+	ret = ulog_parse_buf(raw, &frame->entry);
+	if (ret < 0) {
+		DEBUG("ulog: dropping invalid message (error %d)\n", ret);
+		return -1;
+	}
+
 	/* compute timestamp */
 	frame->stamp = raw->sec*1000000ULL + raw->nsec/1000ULL;
 	/* attach frame to device */
@@ -72,33 +83,24 @@ static int ulog_receive_entry(struct log_device *dev, struct frame *frame)
 	if ((raw->pid != -1) || (raw->tid != -1))
 		dev->mark_readable -= ret;
 
+	/* peek into data to drop non-displayable entries */
+	if (frame->entry.is_binary &&
+	    (dev->ctx->log_format != ULOGCAT_FORMAT_CSV))
+		return 0;
+
 	return 1;
 }
 
 static int ulog_parse_entry(struct frame *frame)
 {
-	int ret;
-	struct ulogger_entry *raw;
-
-	raw = (struct ulogger_entry *)frame->buf;
-
-	/* extract fields from raw data */
-	ret = ulog_parse_buf(raw, &frame->entry);
-	if (ret < 0)
-		DEBUG("ulog: dropping invalid message (error %d)\n", ret);
-
-	return ret;
+	/* no-op, parsing is now done earlier (upon entry read) */
+	return 0;
 }
 
-static int ulog_receive_kmsgd_entry(struct log_device *dev, struct frame *frame)
+static int ulog_parse_kmsgd_entry(struct frame *frame)
 {
-	int ret;
-
-	ret = ulog_receive_entry(dev, frame);
-	if (ret == 1)
-		kmsgd_fix_entry(&frame->entry);
-
-	return ret;
+	kmsgd_fix_entry(&frame->entry);
+	return 0;
 }
 
 static int ulog_clear_buffer(struct log_device *dev)
@@ -146,7 +148,7 @@ int add_ulog_device(struct ulogcat3_context *ctx, const char *name)
 
 	/* kmsgd buffer wraps kernel messages and requires more processing */
 	if (strcmp(name, KMSGD_ULOG_NAME) == 0) {
-		dev->receive_entry = ulog_receive_kmsgd_entry;
+		dev->parse_entry = ulog_parse_kmsgd_entry;
 		dev->label = 'K';
 		snprintf(dev->path, sizeof(dev->path), "/proc/kmsg");
 		ctx->ulog_device_count--;

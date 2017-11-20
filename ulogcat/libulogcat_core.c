@@ -328,7 +328,7 @@ static int process_devices(struct ulogcat3_context *ctx, int timeout_ms)
 			continue;
 
 		ret = dev->receive_entry(dev, frame);
-		if (ret < 0) {
+		if (ret <= 0) {
 			free_frame(ctx, frame);
 			return ret;
 		}
