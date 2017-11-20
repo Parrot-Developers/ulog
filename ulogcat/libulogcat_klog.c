@@ -247,7 +247,7 @@ static int klog_parse_entry(struct frame *frame)
 	p = strchr(entry->message, '\\');
 	if (p) {
 		q = p;
-		while (p) {
+		while (*p) {
 			/* unescape \xNN sequence */
 			if ((p[0] == '\\') &&
 			    (p[1] == 'x')  &&
