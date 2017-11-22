@@ -51,10 +51,14 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 	if (!ctrl.shd_enabled)
 		return;
 
-	if (prio == 0)
-		blob.prio = ULOG_INFO;
-	else
+	/* if no priority given consider RED color as error level
+	 * otherwise default*/
+	if (prio != 0)
 		blob.prio = (unsigned char)(prio & ULOG_PRIO_LEVEL_MASK);
+	else if (logsize >= 6 && log[0] == '\033' && log[5] == '1')
+		blob.prio = ULOG_ERR;
+	else
+		blob.prio = ULOG_INFO;
 
 	/* Get thread name */
 	/* TODO Get the thread name in ambalog to display it on console ? */
