@@ -122,8 +122,10 @@ static void clear(unsigned int flags)
 	struct ulogcat_opts_v3 opts;
 	struct ulogcat3_context *ctx;
 
-	/* clear not supported anymore on kernel buffer */
-	flags &= ~ULOGCAT_FLAG_KLOG;
+	/* clearing kernel buffer requires privileges */
+	if (geteuid() != 0)
+		flags &= ~ULOGCAT_FLAG_KLOG;
+
 	if (!flags)
 		return;
 
@@ -287,7 +289,11 @@ static void run_format(unsigned int flags, unsigned int fmt, int binary)
 	/* count number of tags appearing in output */
 	matches = grep_tmp_file(tag, binary);
 	expected_matches = weight(flags & LOG_MASK);
-	assert(matches == expected_matches);
+	if (matches != expected_matches) {
+		INFO("grep: tag='%s' matches=%d expected_matches=%d\n",
+		     tag, matches, expected_matches);
+		assert(matches == expected_matches);
+	}
 
 	/* check label */
 	if (flags & ULOGCAT_FLAG_SHOW_LABEL) {

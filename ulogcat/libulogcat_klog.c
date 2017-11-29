@@ -19,12 +19,6 @@
 
 #include "libulogcat_private.h"
 
-/* Private structure for managing klog quirks */
-struct klog_device {
-	ssize_t   first_read_len;
-	uint8_t   buf[BUFSIZ];
-};
-
 static void parse_prefix(struct ulog_entry *entry)
 {
 	int len;
@@ -105,32 +99,7 @@ void kmsgd_fix_entry(struct ulog_entry *entry)
 
 static int klog_read_entry(struct log_device *dev, struct frame *frame)
 {
-	int ret = -1;
-	struct klog_device *klog = dev->priv;
-
-	/* is this the first read ? */
-	if (klog->first_read_len >= 0) {
-
-		if (frame->bufsize < (size_t)(klog->first_read_len+1)) {
-			if (frame->buf == frame->data) {
-				/* enlarge frame buffer size */
-				frame->buf = malloc(klog->first_read_len+1);
-				frame->bufsize = klog->first_read_len+1;
-			} else {
-				/* enlarged frame buffer still too small */
-				return -1;
-			}
-		}
-		if (frame->buf == NULL)
-			return -1;
-
-		memcpy(frame->buf, klog->buf, klog->first_read_len);
-		ret = klog->first_read_len;
-		/* make sure buffer is null-terminated */
-		frame->buf[ret] = '\0';
-		klog->first_read_len = -1;
-		return ret;
-	}
+	int ret;
 
 	/* read exactly one kmsg entry */
 	ret = read(dev->fd, frame->buf, frame->bufsize-1);
@@ -268,18 +237,20 @@ static int klog_parse_entry(struct frame *frame)
 
 static int klog_clear_buffer(struct log_device *dev)
 {
-	/*
-	 * Not supported. Action SYSLOG_ACTION_CLEAR does not really clear
-	 * the buffer.
-	 */
-	INFO("clear not supported on kernel ring buffer\n");
-	return -1;
+	int ret;
+
+	ret = klogctl(5/* SYSLOG_ACTION_CLEAR */, NULL, 0);
+	if (ret < 0)
+		INFO("klogctl(SYSLOG_ACTION_CLEAR): %s\n", strerror(errno));
+
+	return ret;
 }
 
 int add_klog_device(struct ulogcat3_context *ctx)
 {
-	struct klog_device *klog = NULL;
-	struct log_device *dev = NULL;
+	int ret;
+	uint8_t *buf;
+	struct log_device *dev;
 
 	dev = log_device_create(ctx);
 	if (dev == NULL)
@@ -298,14 +269,17 @@ int add_klog_device(struct ulogcat3_context *ctx)
 		goto fail;
 	}
 
-	klog = dev->priv = malloc(sizeof(*klog));
-	if (klog == NULL)
-		goto fail;
+	/* skip stale entries */
+	(void)lseek(dev->fd, 0, SEEK_DATA);
 
-	klog->first_read_len = read(dev->fd, klog->buf, sizeof(klog->buf));
-	if (klog->first_read_len < 0)
+	buf = alloca(BUFSIZ);
+	ret = read(dev->fd, buf, BUFSIZ);
+	if ((ret < 0) && (errno != EAGAIN))
 		/* OK, assume this kernel is too old */
 		goto fail;
+
+	/* rewind our descriptor */
+	(void)lseek(dev->fd, 0, SEEK_DATA);
 
 	dev->receive_entry = klog_receive_entry;
 	dev->parse_entry = klog_parse_entry;
