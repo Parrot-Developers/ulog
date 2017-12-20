@@ -41,10 +41,8 @@ static const char *get_token(const char **str, size_t *_size)
 }
 
 /* process an entry directly written to /dev/ulog_xxx */
-static int ulog_parse_buf_unformatted(struct ulogger_entry *buf,
-				      struct ulog_entry *entry,
-				      char *p,
-				      size_t size)
+static int ulog_parse_payload_unformatted(char *p, size_t size,
+					  struct ulog_entry *entry)
 {
 	int len;
 
@@ -66,27 +64,16 @@ static int ulog_parse_buf_unformatted(struct ulogger_entry *buf,
 	return 0;
 }
 
-ULOG_EXPORT int ulog_parse_buf(struct ulogger_entry *buf,
-			       struct ulog_entry *entry)
+/**
+ * Parse a ulog payload as formatted by the kernel driver:
+ *
+ * <pname:N>\0<tname:N>\0<priority:4><tag:N>\0<message:N>
+ *
+ * The payload may have been truncated by the kernel log driver.
+ * When that happens, we must null-terminate the message ourselves.
+ */
+static int ulog_parse_payload(char *p, size_t size, struct ulog_entry *entry)
 {
-	char *p;
-	size_t size;
-
-	entry->tv_sec  = buf->sec;
-	entry->tv_nsec = buf->nsec;
-	entry->pid     = buf->pid;
-	entry->tid     = buf->tid;
-
-	/*
-	 * format: <pname:N>\0<tname:N>\0<priority:4><tag:N>\0<message:N>
-	 *
-	 * The message may have been truncated by the kernel log driver.
-	 * When that happens, we must null-terminate the message ourselves.
-	 */
-
-	p = buf->msg;
-	size = buf->len;
-
 	/* process name */
 	entry->pname = get_token((const char **)&p, &size);
 	if (!entry->pname)
@@ -103,7 +90,7 @@ ULOG_EXPORT int ulog_parse_buf(struct ulogger_entry *buf,
 
 	/* priority, color, binary flag */
 	if (size < 4)
-		return ulog_parse_buf_unformatted(buf, entry, p, size);
+		return ulog_parse_payload_unformatted(p, size, entry);
 
 	/* assume little-endian format */
 	entry->priority  = ((uint32_t)p[0]) & ULOG_PRIO_LEVEL_MASK;
@@ -115,7 +102,7 @@ ULOG_EXPORT int ulog_parse_buf(struct ulogger_entry *buf,
 	/* tag */
 	entry->tag = get_token((const char **)&p, &size);
 	if (!entry->tag)
-		return ulog_parse_buf_unformatted(buf, entry, p-4, size+4);
+		return ulog_parse_payload_unformatted(p-4, size+4, entry);
 
 	/* message */
 	entry->message = p;
@@ -136,4 +123,41 @@ ULOG_EXPORT int ulog_parse_buf(struct ulogger_entry *buf,
 	}
 
 	return 0;
+}
+
+ULOG_EXPORT int ulog_parse_buf(struct ulogger_entry *buf,
+			       struct ulog_entry *entry)
+{
+	entry->tv_sec  = buf->sec;
+	entry->tv_nsec = buf->nsec;
+	entry->pid     = buf->pid;
+	entry->tid     = buf->tid;
+
+	return ulog_parse_payload((char *)buf + buf->hdr_size, buf->len,
+				  entry);
+}
+
+ULOG_EXPORT int ulog_parse_raw(void *buf, size_t len, struct ulog_entry *entry)
+{
+	struct ulogger_entry raw;
+
+	if (len < sizeof(raw))
+		/* raw buffer is too small */
+		return -1;
+
+	memcpy(&raw, buf, sizeof(raw));
+	if (len < raw.hdr_size)
+		/* raw buffer is too small */
+		return -1;
+
+	if (raw.len != len-raw.hdr_size)
+		/* unexpected length */
+		return -1;
+
+	entry->tv_sec  = raw.sec;
+	entry->tv_nsec = raw.nsec;
+	entry->pid     = raw.pid;
+	entry->tid     = raw.tid;
+
+	return ulog_parse_payload((char *)buf + raw.hdr_size, raw.len, entry);
 }

@@ -54,6 +54,20 @@ struct ulog_entry {
  */
 int ulog_parse_buf(struct ulogger_entry *buf, struct ulog_entry *entry);
 
+/**
+ * Parse and split a raw buffer into a 'struct ulog_entry' structure
+ * allocated by caller. Pointers in the structure will point directly to
+ * strings in the raw buffer.
+ *
+ * @param buf:   pointer to raw buffer
+ * @param len:   raw buffer length in bytes
+ * @param entry: output structure
+ *
+ * @return: 0 on success, -1 on invalid buffer (entry will be left in an
+ * unspecified state)
+ */
+int ulog_parse_raw(void *buf, size_t len, struct ulog_entry *entry);
+
 #ifdef __cplusplus
 }
 #endif
