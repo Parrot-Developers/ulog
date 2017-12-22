@@ -22,6 +22,7 @@
 #include <ctype.h>
 #include <stddef.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -193,6 +194,9 @@ int main(int argc, char **argv)
 
 	get_options(argc, argv, &op);
 	op.opts.opt_output_fp = stdout;
+
+	/* ignore SIGPIPE */
+        signal(SIGPIPE, SIG_IGN);
 
 	ctx = ulogcat3_open(&op.opts, (const char **)op.ulog_devices,
 			    op.ulog_ndevices);

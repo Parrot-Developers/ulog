@@ -23,23 +23,36 @@ static void output_rendered(struct ulogcat3_context *ctx)
 {
 	ssize_t ret;
 
+	if (ctx->output_error)
+		return;
+
 	if (ctx->output_fp) {
 		ret = fwrite(ctx->render_buf, ctx->render_len, 1,
 			     ctx->output_fp);
-		if (ret != 1)
+		if (ret != 1) {
 			INFO("cannot output frame: %s\n", strerror(errno));
+			ctx->output_error = 1;
+		}
 	} else if (ctx->output_fd >= 0) {
 		do {
 			ret = write(ctx->output_fd,
 				    ctx->render_buf, ctx->render_len);
 		} while ((ret < 0) && (errno == EINTR));
+
+		if (ret < 0)
+			ctx->output_error = 1;
 	}
 }
 
 static void flush_output(struct ulogcat3_context *ctx)
 {
-	if (ctx->output_fp)
-		fflush(ctx->output_fp);
+	int ret;
+
+	if (ctx->output_fp && !ctx->output_error) {
+		ret = fflush(ctx->output_fp);
+		if (ret)
+			ctx->output_error = 1;
+	}
 }
 
 static struct frame *alloc_frame(struct ulogcat3_context *ctx)
@@ -390,6 +403,9 @@ LIBULOGCAT_API int ulogcat3_process_logs(struct ulogcat3_context *ctx,
 			flush_output(ctx);
 			return 0;
 		}
+
+		if (ctx->output_error)
+			return -1;
 
 	} while (!max_entries || (frames < max_entries));
 

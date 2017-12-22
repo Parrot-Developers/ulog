@@ -139,6 +139,7 @@ struct ulogcat3_context {
 	int                      render_len;
 	int                      ulog_device_count;
 	int                      mark_reached;
+	int                      output_error;
 };
 
 struct log_device *log_device_create(struct ulogcat3_context *ctx);
