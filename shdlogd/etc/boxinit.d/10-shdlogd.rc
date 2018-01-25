@@ -2,7 +2,6 @@
 on init
     write /sys/devices/virtual/misc/ulog_main/logs "ulog_shdlogd 18"
 
-service shdlogd /usr/bin/shdlogd
-    setenv ULOG_DEVICE shdlogd
+service shdlogd /usr/bin/shdlogd -d /dev/ulog_shdlogd
     class main
     user root
