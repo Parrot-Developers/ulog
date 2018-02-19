@@ -170,6 +170,22 @@
 		      strerror(_err))
 
 /**
+ * Log as NOTICE an event log of the form
+ * EVT:<type>;<param1>=<value1>;<param2>=<value2>...
+ * <type>:   Type of the event. In upper case with '_' to separate words
+ *           (So a valid C enum identifier).
+ * <paramN>:   Name of parameter N: In lower case with '_' to separate words
+ *           (So a valid C variable identifier).
+ * <valueN>: Value of parameter N: in Quotes for string.
+ *           Avoid putting ';' in them or escape them with '\'.
+ *
+ * _type : Type of the event as a string
+ * _fmt : formatting string for arguments, pass empty string if no arguments
+ */
+#define ULOG_EVT(_type, _fmt, ...) \
+	ULOGN("EVT:" _type ";" _fmt, ##__VA_ARGS__)
+
+/**
  * Maximum length of an ascii message.
  *
  * Non-binary messages exceeding this length will be truncated.
