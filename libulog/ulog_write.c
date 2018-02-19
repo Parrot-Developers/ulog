@@ -61,7 +61,7 @@ static struct {
 	.writer      = __writer_init,
 	.writer2     = NULL,
 	.cookie_register_hook = NULL,
-	.cookie_list = &__ulog_default_cookie,
+	.cookie_list = NULL,
 };
 
 /* null writer (used when both ulogger and syslog are disabled) */
