@@ -2,7 +2,7 @@
 -------------------------------------------------
 Assuming your Android kernel source path is $KERNEL, proceed as follows:
 $ mkdir ${KERNEL}/drivers/staging/ulogger
-$ cp Makefile ulogger.c ulogger.h ${KERNEL}/drivers/staging/ulogger/
+$ cp Makefile ulogger* ${KERNEL}/drivers/staging/ulogger/
 
 Then, edit ${KERNEL}/drivers/staging/Makefile and add the following line:
 obj-y += ulogger/
