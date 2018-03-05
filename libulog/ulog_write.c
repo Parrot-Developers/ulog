@@ -24,7 +24,9 @@
 #include <errno.h>
 #include <ctype.h>
 #include <sys/stat.h>
-#include <sys/uio.h>
+#ifndef _WIN32
+#  include <sys/uio.h>
+#endif
 #include <sys/types.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -71,6 +73,7 @@ static void __writer_null(uint32_t prio __unused,
 }
 
 /* ulogger writer */
+#ifndef _WIN32
 static void __writer_kernel(uint32_t prio, struct ulog_cookie *cookie,
 			    const char *buf, int len)
 {
@@ -92,6 +95,7 @@ static void __writer_kernel(uint32_t prio, struct ulog_cookie *cookie,
 		ret = writev(ctrl.fd, vec, 3);
 	} while ((ret < 0) && (errno == EINTR));
 }
+#endif
 
 /* copy log messages to stderr */
 static void __writer_stderr(uint32_t prio, struct ulog_cookie *cookie,
@@ -141,15 +145,17 @@ static void __writer_stderr_wrapper(uint32_t prio, struct ulog_cookie *cookie,
 static void __writer_init(uint32_t prio, struct ulog_cookie *cookie,
 			  const char *buf, int len)
 {
+	ulog_write_func_t writer = __writer_null;
+#ifndef _WIN32
 	const char *prop, *dev;
-	ulog_write_func_t writer;
 	char devbuf[32];
 	struct stat st;
+#endif
 
 	pthread_mutex_lock(&ctrl.lock);
 
 	if (ctrl.writer == __writer_init) {
-
+#ifndef _WIN32
 		/* first try to use ulogger kernel device */
 		dev = "/dev/" ULOGGER_LOG_MAIN;
 		prop = getenv("ULOG_DEVICE");
@@ -172,6 +178,7 @@ static void __writer_init(uint32_t prio, struct ulog_cookie *cookie,
 			writer = ulog_writer_android;
 		else
 			writer = __writer_null;
+#endif
 
 		/* optionally output a copy of messages to stderr */
 		if (getenv("ULOG_STDERR") || writer == __writer_null) {

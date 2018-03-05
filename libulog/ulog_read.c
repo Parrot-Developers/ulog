@@ -19,7 +19,6 @@
 #define _GNU_SOURCE
 #include <string.h>
 #include <stdint.h>
-#include <sys/ioctl.h>
 
 #include "ulog.h"
 #include "ulogprint.h"

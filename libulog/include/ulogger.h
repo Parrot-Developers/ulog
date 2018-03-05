@@ -19,7 +19,9 @@
 #define _PARROT_ULOGGER_H
 
 #include <stdint.h>
-#include <sys/ioctl.h>
+#ifndef _WIN32
+#  include <sys/ioctl.h>
+#endif
 
 /*
  * The userspace structure for version 1 of the ulogger_entry ABI.
