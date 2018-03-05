@@ -312,11 +312,19 @@ extern struct ulog_cookie __ulog_default_cookie;
 void ulog_init_cookie(struct ulog_cookie *cookie);
 void ulog_vlog_write(uint32_t prio, struct ulog_cookie *cookie,
 		     const char *fmt, va_list ap)
+#if defined(__MINGW32__) && !defined(__clang__)
+	__attribute__ ((format (gnu_printf, 3, 0)));
+#else
 	__attribute__ ((format (printf, 3, 0)));
+#endif
 
 void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 		    const char *fmt, ...)
+#if defined(__MINGW32__) && !defined(__clang__)
+	__attribute__ ((format (gnu_printf, 3, 4)));
+#else
 	__attribute__ ((format (printf, 3, 4)));
+#endif
 
 /* force inlining of priority filtering for better performance */
 #define ulog_vlog(_prio, _cookie, _fmt, _ap)				\
