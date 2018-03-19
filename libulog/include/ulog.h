@@ -163,11 +163,14 @@
 #define ULOGD(...)      ULOG_PRI(ULOG_DEBUG,  __VA_ARGS__)
 
 /**
- * Log a simple string message and errno with priority ERR.
+ * Log a message that will automatically be predended with the name of the
+ * calling function and line number. It will also append the given error as
+ * numerical + sting (it assumes an errno). The priority will be ERR.
  */
-#define ULOG_ERRNO(_msg, _err)						\
-	ULOGE("%s:%d: %s err=%d(%s)", __func__, __LINE__, _msg, _err,	\
-		      strerror(_err))
+#define ULOG_ERRNO(_fmt, _err, ...) \
+	ULOGE("%s:%d: " _fmt " err=%d(%s)", \
+		__func__, __LINE__, ##__VA_ARGS__, \
+			_err, strerror(_err))
 
 /**
  * Log as NOTICE an event log of the form
