@@ -44,17 +44,6 @@ static void output_rendered(struct ulogcat3_context *ctx)
 	}
 }
 
-static void flush_output(struct ulogcat3_context *ctx)
-{
-	int ret;
-
-	if (ctx->output_fp && !ctx->output_error) {
-		ret = fflush(ctx->output_fp);
-		if (ret)
-			ctx->output_error = 1;
-	}
-}
-
 static struct frame *alloc_frame(struct ulogcat3_context *ctx)
 {
 	struct frame *frame;
@@ -302,12 +291,6 @@ static int process_devices(struct ulogcat3_context *ctx, int timeout_ms)
 	if (ctx->pending > 0)
 		timeout_ms = 0;
 
-	/* force short timeout if devices are still busy */
-	if ((timeout_ms < 0) && ctx->devices_busy)
-		timeout_ms = LIBULOGCAT_TIMEOUT_MS;
-
-	ctx->devices_busy = 0;
-
 	ret = poll(ctx->fds, ctx->device_count, timeout_ms);
 	if (ret < 0) {
 		if (errno == EINTR)
@@ -315,10 +298,6 @@ static int process_devices(struct ulogcat3_context *ctx, int timeout_ms)
 		INFO("poll: %s\n", strerror(errno));
 		return -1;
 	}
-
-	/* we were idle for at least a short time, flush output */
-	if ((timeout_ms > 0) && (ret == 0))
-		flush_output(ctx);
 
 	/* read one entry per active device and add it to pending queue */
 	list_for_each(node, &ctx->log_devices) {
@@ -332,9 +311,6 @@ static int process_devices(struct ulogcat3_context *ctx, int timeout_ms)
 			}
 			continue;
 		}
-
-		/* at least one device still has data */
-		ctx->devices_busy = 1;
 
 		frame = alloc_frame(ctx);
 		if (frame == NULL)
@@ -400,7 +376,6 @@ LIBULOGCAT_API int ulogcat3_process_logs(struct ulogcat3_context *ctx,
 		/* in dump mode, stop when mark is reached */
 		if ((ctx->flags & ULOGCAT_FLAG_DUMP) && ctx->mark_reached) {
 			flush_pending_queue(ctx);
-			flush_output(ctx);
 			return 0;
 		}
 
@@ -464,9 +439,13 @@ ulogcat3_open(const struct ulogcat_opts_v3 *opts, const char **devices,
 	ctx->output_fd = opts->opt_output_fd;
 	ctx->output_fp = opts->opt_output_fp;
 
-	/* default output is buffered stdout */
+	/* default output is stdout */
 	if ((ctx->output_fd < 0) && (ctx->output_fp == NULL))
 		ctx->output_fp = stdout;
+
+	if (ctx->output_fp)
+		/* we want a line-buffered output */
+		setlinebuf(ctx->output_fp);
 
 	list_init(&ctx->log_devices);
 	list_init(&ctx->free_queue);

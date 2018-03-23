@@ -64,9 +64,6 @@
 
 #define LIBULOGCAT_API  __attribute__((visibility("default")))
 
-/* Idle timeout after which output descriptor is flushed */
-#define LIBULOGCAT_TIMEOUT_MS  10
-
 /*
  * Frame buffer size: this should be chosen large enough to contain most
  * messages. A typical ulogger kernel entry has the following size:
@@ -125,7 +122,6 @@ struct ulogcat3_context {
 	FILE                    *output_fp;
 	int                      output_fd;
 	int                      device_count;
-	int                      devices_busy;
 	int                      pending;
 	int                      render;
 	struct pollfd           *fds;
