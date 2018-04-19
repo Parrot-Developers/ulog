@@ -27,8 +27,11 @@ namespace ulog
 namespace internal
 {
 
-#define CREATE_LOGGER(_name,_level)  Ulogstream _name##Stream (_level,ULOG_BUF_SIZE);\
-                                   ULOG_EXPORT OstreamUlog _name(&_name##Stream);
+#define ULOG_CPP_BUF_SIZE 512
+
+#define CREATE_LOGGER(_name,_level) \
+	Ulogstream _name##Stream (_level, ULOG_CPP_BUF_SIZE); \
+	ULOG_EXPORT OstreamUlog _name(&_name##Stream);
 
 class Ulogstream: public std::streambuf
 {
@@ -164,7 +167,8 @@ CREATE_LOGGER(UlogCraw,ULOG_CRIT);
 } // namespace internal
 
 // stream that can be used for std:cerr redirection
-static ulog::internal::Ulogstream __UlogstreamCerr(ULOG_INFO, ULOG_BUF_SIZE);
+static
+ulog::internal::Ulogstream __UlogstreamCerr(ULOG_INFO, ULOG_CPP_BUF_SIZE);
 ULOG_EXPORT std::streambuf &UlogstreamCerr = __UlogstreamCerr;
 
 } // namespace ulog
