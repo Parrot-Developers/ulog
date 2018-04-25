@@ -362,7 +362,7 @@ LIBULOGCAT_API int ulogcat_init(struct ulogcat_context *ctx)
 	return 0;
 }
 
-static int ulogcat_do_ioctl(struct ulogcat_context *ctx)
+int ulogcat_do_ioctl(struct ulogcat_context *ctx)
 {
 	struct listnode *node;
 	struct log_device *dev;
@@ -496,7 +496,7 @@ LIBULOGCAT_API int ulogcat_setup_descriptors(struct ulogcat_context *ctx,
 	return 0;
 }
 
-static int ulogcat_read_log_lines(struct ulogcat_context *ctx)
+int ulogcat_read_log_lines(struct ulogcat_context *ctx)
 {
 	int ret = -1, timeout_ms;
 	struct pollfd *fds;

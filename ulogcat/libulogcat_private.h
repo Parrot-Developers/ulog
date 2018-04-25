@@ -148,6 +148,9 @@ void kmsgd_fix_entry(struct ulog_entry *entry);
 int add_all_ulog_devices(struct ulogcat_context *ctx);
 int add_all_alog_devices(struct ulogcat_context *ctx);
 
+int ulogcat_do_ioctl(struct ulogcat_context *ctx);
+int ulogcat_read_log_lines(struct ulogcat_context *ctx);
+
 int ckcm_frame_size(void);
 int render_ckcm_frame(struct ulogcat_context *ctx,
 		      const struct log_entry *_entry, struct frame *frame);

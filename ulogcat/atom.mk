@@ -16,7 +16,8 @@ LOCAL_SRC_FILES := \
 	libulogcat_core.c \
 	libulogcat_klog.c \
 	libulogcat_text.c \
-	libulogcat_ulog.c
+	libulogcat_ulog.c \
+	libulogcat_compat_v3.c
 
 LOCAL_LIBRARIES := libulog
 include $(BUILD_SHARED_LIBRARY)
