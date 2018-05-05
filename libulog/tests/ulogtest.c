@@ -284,6 +284,50 @@ static void test_throttling(void)
 	}
 }
 
+static void test_change(void)
+{
+	int i;
+
+	for (i = 0; i < 10; i++) {
+		ULOGI_CHANGE(i,   "i=%2d", i);
+		ULOGW_CHANGE(i/2, "i=%2d: i/2 = %d", i, i/2);
+		ULOGN_CHANGE(i/3, "i=%2d: i/3 = %d", i, i/3);
+	}
+}
+
+static void *thread_change_routine(void *arg)
+{
+	const int delay = 100000;
+	int i, id = (int)(intptr_t)arg;
+
+	if (id == 0)
+		usleep(delay/2);
+
+	for (i = 0; i < 10; i++) {
+		ULOGI_CHANGE(i, "thread #%d: value=%d", id, i);
+		usleep(delay);
+	}
+
+	return NULL;
+}
+
+/* Run a test with threads to make sure TLS is effective */
+static void test_change_threads(void)
+{
+	int i, ret;
+	pthread_t tid[2];
+
+	for (i = 0; i < 2; i++) {
+		ret = pthread_create(&tid[i], NULL, &thread_change_routine,
+				     (void *)(intptr_t)i);
+		assert(ret == 0);
+	}
+	for (i = 0; i < 2; i++) {
+		ret = pthread_join(tid[i], NULL);
+		assert(ret == 0);
+	}
+}
+
 int main(void)
 {
 	test_levels();
@@ -299,6 +343,8 @@ int main(void)
 	test_va();
 	test_raw_mode();
 	test_throttling();
+	test_change();
+	test_change_threads();
 	test_custom_write_func();
 
 	return 0;

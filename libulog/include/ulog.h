@@ -269,6 +269,22 @@
 #define ULOGI_THROTTLE(_ms, ...)  ULOG_THROTTLE(_ms, ULOG_INFO,   __VA_ARGS__)
 #define ULOGD_THROTTLE(_ms, ...)  ULOG_THROTTLE(_ms, ULOG_DEBUG,  __VA_ARGS__)
 
+/**
+ * Additional logging macros with filtering capabilities.
+ *
+ * These macros are similar to ULOGx macros except that the first argument
+ * is a scalar value. Invoking these macros only produce messages when the
+ * value has changed, or when invoked for the first time.
+ * This is useful for logging only the transitions of a value.
+ * Note: the value is cast to type uintptr_t for change comparison.
+ */
+#define ULOGC_CHANGE(_value, ...)  ULOG_CHANGE(_value, ULOG_CRIT,   __VA_ARGS__)
+#define ULOGE_CHANGE(_value, ...)  ULOG_CHANGE(_value, ULOG_ERR,    __VA_ARGS__)
+#define ULOGW_CHANGE(_value, ...)  ULOG_CHANGE(_value, ULOG_WARN,   __VA_ARGS__)
+#define ULOGN_CHANGE(_value, ...)  ULOG_CHANGE(_value, ULOG_NOTICE, __VA_ARGS__)
+#define ULOGI_CHANGE(_value, ...)  ULOG_CHANGE(_value, ULOG_INFO,   __VA_ARGS__)
+#define ULOGD_CHANGE(_value, ...)  ULOG_CHANGE(_value, ULOG_DEBUG,  __VA_ARGS__)
+
 /*----------------------------------------------------------------------------*/
 /* Additional API for dynamically controlling logging levels */
 
@@ -458,6 +474,23 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 			__last = __now;					\
 		} else {						\
 			__masked++;					\
+		}							\
+	} while (0)
+
+
+/* Log only if value has changed */
+#define ULOG_CHANGE(_value, _prio, ...)					\
+	ulog_log_change(_value, _prio, &__ULOG_COOKIE, __VA_ARGS__)
+
+#define ulog_log_change(_value, _prio, _cookie, ...)			\
+	do {								\
+		static __thread int __initialized;			\
+		static __thread uintptr_t __last_value;			\
+		uintptr_t __value = (uintptr_t)(_value);		\
+		if ((__value != __last_value) || !__initialized) {	\
+			ulog_log((_prio), (_cookie), __VA_ARGS__);	\
+			__last_value = __value;				\
+			__initialized = 1;				\
 		}							\
 	} while (0)
 
