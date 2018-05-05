@@ -128,6 +128,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
 
 /*----------------------------------------------------------------------------*/
 /* ULOG API */
@@ -250,6 +251,23 @@
  * Non-binary messages exceeding this length will be truncated.
  */
 #define ULOG_BUF_SIZE   256
+
+/**
+ * Additional logging macros with throttling capabilities.
+ *
+ * These macros are similar to ULOGx macros except that the first argument
+ * is a delay expressed in milliseconds. When a message is logged, subsequent
+ * invocations of the same logging macro do not produce messages until the
+ * specified delay has expired. This is useful to prevent log buffer flooding.
+ * When messages have been masked due to throttling, a counter is prepended to
+ * the next printed message to indicate the number of masked logs.
+ */
+#define ULOGC_THROTTLE(_ms, ...)  ULOG_THROTTLE(_ms, ULOG_CRIT,   __VA_ARGS__)
+#define ULOGE_THROTTLE(_ms, ...)  ULOG_THROTTLE(_ms, ULOG_ERR,    __VA_ARGS__)
+#define ULOGW_THROTTLE(_ms, ...)  ULOG_THROTTLE(_ms, ULOG_WARN,   __VA_ARGS__)
+#define ULOGN_THROTTLE(_ms, ...)  ULOG_THROTTLE(_ms, ULOG_NOTICE, __VA_ARGS__)
+#define ULOGI_THROTTLE(_ms, ...)  ULOG_THROTTLE(_ms, ULOG_INFO,   __VA_ARGS__)
+#define ULOGD_THROTTLE(_ms, ...)  ULOG_THROTTLE(_ms, ULOG_DEBUG,  __VA_ARGS__)
 
 /*----------------------------------------------------------------------------*/
 /* Additional API for dynamically controlling logging levels */
@@ -409,6 +427,38 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <=		\
 				(_cookie)->level)			\
 			ulog_log_write(__p, (_cookie), __VA_ARGS__);	\
+	} while (0)
+
+/* Log only if last message was logged at least _ms milliseconds ago */
+#define ULOG_THROTTLE(_ms, _prio, ...)					\
+	ulog_log_throttle(_ms, _prio, &__ULOG_COOKIE, __VA_ARGS__)
+
+#define ulog_log_throttle(_ms, _prio, _cookie, _fmt, ...)		\
+	do {								\
+		static __thread unsigned int __masked;			\
+		static __thread unsigned long long __last;		\
+		struct timespec __tp;					\
+		unsigned long long __now;				\
+									\
+		(void)clock_gettime(CLOCK_MONOTONIC, &__tp);		\
+		__now = __tp.tv_sec*1000ULL + __tp.tv_nsec/1000000ULL;	\
+									\
+		if (__now >= __last + (_ms)) {				\
+			if (__masked) {					\
+				char _buf[ULOG_BUF_SIZE];		\
+				snprintf(_buf, sizeof(_buf),		\
+					 "[%u] " _fmt,			\
+					 __masked, ##__VA_ARGS__);	\
+				ulog_log_str((_prio), (_cookie), _buf); \
+				__masked = 0;				\
+			} else {					\
+				ulog_log((_prio), (_cookie),		\
+					 _fmt, ##__VA_ARGS__);		\
+			}						\
+			__last = __now;					\
+		} else {						\
+			__masked++;					\
+		}							\
 	} while (0)
 
 void ulog_log_buf(uint32_t prio, struct ulog_cookie *cookie, const void *buf,

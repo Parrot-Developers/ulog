@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <assert.h>
 #include <sys/time.h>
+#include <unistd.h>
 #include <pthread.h>
 
 #define  ULOG_TAG pulsarsoca
@@ -271,6 +272,18 @@ finish:
 		ulog_raw_close(fd);
 }
 
+static void test_throttling(void)
+{
+	int i;
+
+	/* flood log buffer @ 200 Hz */
+	for (i = 0; i < 100; i++) {
+		ULOGI_THROTTLE(100, "I'm flooding the buffer and I know it");
+		ULOGN_THROTTLE(200, "Throttling #%d\n", i);
+		usleep(5000);
+	}
+}
+
 int main(void)
 {
 	test_levels();
@@ -284,8 +297,9 @@ int main(void)
 	test_color();
 	test_threads();
 	test_va();
-	test_custom_write_func();
 	test_raw_mode();
+	test_throttling();
+	test_custom_write_func();
 
 	return 0;
 }
