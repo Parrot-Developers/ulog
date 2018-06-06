@@ -274,7 +274,9 @@ int add_klog_device(struct ulogcat3_context *ctx)
 
 	buf = alloca(BUFSIZ);
 	ret = read(dev->fd, buf, BUFSIZ);
-	if ((ret < 0) && (errno != EAGAIN))
+	/* broken pipe error can be ignored since it just means
+	 * that some messages have been overwritten. */
+	if ((ret < 0) && (errno != EAGAIN) && (errno != EPIPE))
 		/* OK, assume this kernel is too old */
 		goto fail;
 
