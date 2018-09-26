@@ -190,19 +190,8 @@ int main(int argc, char *argv[])
 		{"tag",     required_argument, 0,           't'},
 		{0, 0, 0, 0}
 	};
-
 	const char *ulogdev = getenv("ULOG_DEVICE");
-	int ulogfd = -1;
-	if (!ulogdev)
-		ulogdev = ULOG_DEFAULT_DEVICE;
-	snprintf(path, sizeof path, "/dev/ulog_%s", ulogdev);
-	ulogfd = ulog_raw_open(path);
-	if (ulogfd < 0) {
-		fprintf(stderr, "cannot open %s: %s\n", path, strerror(errno));
-		/* change tag name, safe only because there is no concurrent access */
-		__ULOG_REF(ulogger).name = raw.tag;
-		__ULOG_REF(ulogger).namesize = strlen(raw.tag) + 1;
-	}
+	int ulogfd;
 
 	memset(&raw, 0, sizeof raw);
 	raw.pname = program_invocation_short_name;
@@ -214,6 +203,17 @@ int main(int argc, char *argv[])
 	raw.prio = ULOG_INFO;
 	raw.tag = "ulogger";
 	raw.tag_len = strlen(raw.tag) + 1;
+
+	if (!ulogdev)
+		ulogdev = ULOG_DEFAULT_DEVICE;
+	snprintf(path, sizeof path, "/dev/ulog_%s", ulogdev);
+	ulogfd = ulog_raw_open(path);
+	if (ulogfd < 0) {
+		fprintf(stderr, "cannot open %s: %s\n", path, strerror(errno));
+		/* change tag name, safe only because there is no concurrent access */
+		__ULOG_REF(ulogger).name = raw.tag;
+		__ULOG_REF(ulogger).namesize = strlen(raw.tag) + 1;
+	}
 
 	while ((c = getopt_long(argc, argv, "hi:mn:p:st:", long_options, NULL))
 	        != -1) {
