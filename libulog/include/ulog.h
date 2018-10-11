@@ -173,6 +173,47 @@
 			_err, strerror(_err))
 
 /**
+ * Log an errno message (with the provided positive errno)
+ * and return if the condition is true.
+ * The priority will be ERR.
+ */
+#define ULOG_ERRNO_RETURN_IF(_cond, _err) \
+	do { \
+		if ((_cond)) { \
+			ULOG_ERRNO("", (_err)); \
+			return; \
+		} \
+	} while (0)
+
+/**
+ * Log an errno message (with the provided positive errno)
+ * and return the negative errno if the condition is true.
+ * The priority will be ERR.
+ */
+#define ULOG_ERRNO_RETURN_ERR_IF(_cond, _err) \
+	do { \
+		if ((_cond)) { \
+			ULOG_ERRNO("", (_err)); \
+			/* codecheck_ignore[RETURN_PARENTHESES] */ \
+			return -(_err); \
+		} \
+	} while (0)
+
+/**
+ * Log an errno message (with the provided positive errno)
+ * and return the provided value if the condition is true.
+ * The priority will be ERR.
+ */
+#define ULOG_ERRNO_RETURN_VAL_IF(_cond, _err, _val) \
+	do { \
+		if ((_cond)) { \
+			ULOG_ERRNO("", (_err)); \
+			/* codecheck_ignore[RETURN_PARENTHESES] */ \
+			return (_val); \
+		} \
+	} while (0)
+
+/**
  * Log as NOTICE an event log of the form
  * EVT:<type>;<param1>=<value1>;<param2>=<value2>...
  * <type>:   Type of the event. In upper case with '_' to separate words
