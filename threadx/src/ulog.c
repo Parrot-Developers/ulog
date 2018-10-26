@@ -343,7 +343,7 @@ char ulog_prio2char(int prio)
 		[ULOG_DEBUG]  = 'D'
 	};
 
-	if (prio > ULOG_DEBUG)
+	if (prio < 0 || prio > ULOG_DEBUG)
 		return ' ';
 
 	return priotab[prio];
