@@ -94,7 +94,8 @@ int ulogcat3_clear(struct ulogcat3_context *ctx);
  *
  * Read, render and output entries from log devices.
  * If @max_entries is > 0, limit the number of processed entries to that number.
- * This function may block if flag ULOGCAT_FLAG_DUMP was not specified in options.
+ * This function may block if flag ULOGCAT_FLAG_DUMP was not specified in
+ * options.
  *
  * @param ctx: ulogcat context
  * @param max_entries: maximum number of processed lines, 0 means no limit

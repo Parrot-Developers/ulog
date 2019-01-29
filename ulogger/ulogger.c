@@ -32,7 +32,8 @@
 ULOG_DECLARE_TAG(ulogger);
 #define ULOG_DEFAULT_DEVICE "main"
 
-extern const char* program_invocation_short_name;
+/* codecheck_ignore[AVOID_EXTERNS] */
+extern const char *program_invocation_short_name;
 
 static void usage(void)
 {
@@ -89,9 +90,9 @@ static int parse_level(int c)
 	return level;
 }
 
-static int parse_int32(const char * str, int32_t * value, const char ** pendptr)
+static int parse_int32(const char *str, int32_t *value, const char **pendptr)
 {
-	char * endptr;
+	char *endptr;
 	int ret;
 	if (!str || *str == '\0' || !value)
 		return -EINVAL;
@@ -101,34 +102,32 @@ static int parse_int32(const char * str, int32_t * value, const char ** pendptr)
 	if (*endptr == '\0') {
 		*value = ret;
 		return 0;
-	}
-	else
+	} else {
 		return -EINTR;
+	}
 }
 
 static int parse_time(
-	const char * str, int32_t * seconds, int32_t * nanoseconds,
-	const char ** pendptr)
+	const char *str, int32_t *seconds, int32_t *nanoseconds,
+	const char **pendptr)
 {
-	const char * endptr;
+	const char *endptr;
 	int s, n;
 	int ret;
 
-	if (!str || *str == '\0' || *str == ' ' || !seconds || !nanoseconds) {
+	if (!str || *str == '\0' || *str == ' ' || !seconds || !nanoseconds)
 		return -EINVAL;
-	}
 
-	s = strtol(str, (char**)&endptr, 10);
+	s = strtol(str, (char **)&endptr, 10);
 	if (*endptr == ' ') {
 		*seconds = s;
-		// nanoseconds is optional and defaults to 0
+		/* nanoseconds is optional and defaults to 0 */
 		*nanoseconds = 0;
 		endptr++;
 		str = endptr;
-		n = strtol(str, (char**)&endptr, 10);
-		if (str != endptr) {
+		n = strtol(str, (char **)&endptr, 10);
+		if (str != endptr)
 			*nanoseconds = n;
-		}
 		ret = 0;
 	} else {
 		ret = -EINTR;
@@ -139,7 +138,7 @@ static int parse_time(
 	return ret;
 }
 
-static const char * space_skip(const char * p)
+static const char *space_skip(const char *p)
 {
 	if (!p)
 		return p;
@@ -150,10 +149,10 @@ static const char * space_skip(const char * p)
 	return p;
 }
 
-static int ulogger_log(int ulogfd, struct ulog_raw_entry * raw, int copy_stderr)
+static int ulogger_log(int ulogfd, struct ulog_raw_entry *raw, int copy_stderr)
 {
 	int ret = 0;
-	const char * const prios = "01CEWNID";
+	const char *const prios = "01CEWNID";
 	if (ulogfd >= 0)
 		ret = ulog_raw_log(ulogfd, raw);
 	else
@@ -165,7 +164,8 @@ static int ulogger_log(int ulogfd, struct ulog_raw_entry * raw, int copy_stderr)
 	if (copy_stderr) {
 		fprintf(stderr, "%c %s: %s", prios[raw->prio],
 			raw->tag, raw->message);
-		if (!raw->message[0] || (raw->message[strlen(raw->message)-1] != '\n'))
+		if (!raw->message[0] ||
+				(raw->message[strlen(raw->message)-1] != '\n'))
 			fprintf(stderr, "\n");
 	}
 	return ret;
@@ -177,10 +177,9 @@ int main(int argc, char *argv[])
 	char path[4096];
 	struct timespec ts;
 	int c, i, copy_stderr = 0, has_time = 0;
-	const char * parse_pos;
+	const char *parse_pos;
 	struct ulog_raw_entry raw;
-	struct option long_options[] =
-	{
+	struct option long_options[] = {
 		{"help",    no_argument,       0,           'h'},
 		{"pid",     required_argument, 0,           'i'},
 		{"time",    no_argument,       &has_time,   1},
@@ -193,7 +192,7 @@ int main(int argc, char *argv[])
 	const char *ulogdev = getenv("ULOG_DEVICE");
 	int ulogfd;
 
-	memset(&raw, 0, sizeof raw);
+	memset(&raw, 0, sizeof(raw));
 	raw.pname = program_invocation_short_name;
 	raw.pname_len = strlen(raw.pname) + 1;
 	raw.tname = NULL;
@@ -206,20 +205,21 @@ int main(int argc, char *argv[])
 
 	if (!ulogdev)
 		ulogdev = ULOG_DEFAULT_DEVICE;
-	snprintf(path, sizeof path, "/dev/ulog_%s", ulogdev);
+	snprintf(path, sizeof(path), "/dev/ulog_%s", ulogdev);
 	ulogfd = ulog_raw_open(path);
 	if (ulogfd < 0) {
 		fprintf(stderr, "cannot open %s: %s\n", path, strerror(errno));
-		/* change tag name, safe only because there is no concurrent access */
+		/* change tag name, safe only because there is no concurrent
+		 * access */
 		__ULOG_REF(ulogger).name = raw.tag;
 		__ULOG_REF(ulogger).namesize = strlen(raw.tag) + 1;
 	}
 
 	while ((c = getopt_long(argc, argv, "hi:mn:p:st:", long_options, NULL))
-	        != -1) {
+		!= -1) {
 		switch (c) {
 		case 0:
-			// getopt flag, nothing to do
+			/* getopt flag, nothing to do */
 			break;
 		case 'i':
 			if (!parse_int32(optarg, &raw.entry.pid, NULL))
@@ -257,11 +257,13 @@ int main(int argc, char *argv[])
 				raw.entry.sec = ts.tv_sec;
 				raw.entry.nsec = ts.tv_nsec;
 			} else {
-				if (i < argc - 1 &&
-				    !parse_int32(argv[i], &raw.entry.sec, NULL)) {
+				if (i < argc - 1 && !parse_int32(argv[i],
+						&raw.entry.sec, NULL)) {
 					i++;
-					if (i < argc - 1 &&
-					    !parse_int32(argv[i], &raw.entry.nsec, NULL)) {
+					if (i < argc - 1 && !parse_int32(
+							argv[i],
+							&raw.entry.nsec,
+							NULL)) {
 						i++;
 					}
 				}
@@ -280,7 +282,8 @@ int main(int argc, char *argv[])
 				raw.message_len = strlen(raw.message) + 1;
 			} else {
 				parse_pos = buf;
-				parse_time(buf, &raw.entry.sec, &raw.entry.nsec, &parse_pos);
+				parse_time(buf, &raw.entry.sec, &raw.entry.nsec,
+						&parse_pos);
 				raw.message = space_skip(parse_pos);
 				raw.message_len = strlen(raw.message) + 1;
 			}

@@ -196,7 +196,7 @@ int main(int argc, char **argv)
 	op.opts.opt_output_fp = stdout;
 
 	/* ignore SIGPIPE */
-        signal(SIGPIPE, SIG_IGN);
+	signal(SIGPIPE, SIG_IGN);
 
 	ctx = ulogcat3_open(&op.opts, (const char **)op.ulog_devices,
 			    op.ulog_ndevices);
