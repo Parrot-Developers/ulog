@@ -11,12 +11,12 @@
 # If you also want to see ulogX messages on the console, set ULOG_STDERR=y
 # This implies ULOG_NO_REDIRECT_STD=y
 
-if [ "$ULOG_STDERR" = "y" ]
+if [ "${ULOG_STDERR-}" = "y" ]
 then
     ULOG_NO_REDIRECT_STD=y
 fi
 
-if [ "$ULOG_NO_REDIRECT_STD" != "y" ]
+if [ "${ULOG_NO_REDIRECT_STD-}" != "y" ]
 then
     # redirect stdout and stderr to ulog, to catch logs not issued with ulogX funcs
     exec 1> /dev/ulog_main 2>&1
@@ -39,7 +39,7 @@ ulog() {
 		ulog_tag="(shell script)"
 	fi
 
-	if [ "$ULOG_STDERR" = "y" ]
+	if [ "${ULOG_STDERR-}" = "y" ]
 	then
 		printf "${ULOG_LEVEL_LETTERS:$level:1} ${message}\n" >&2
 	fi
