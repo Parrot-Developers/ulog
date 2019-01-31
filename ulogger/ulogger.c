@@ -174,7 +174,7 @@ static int ulogger_log(int ulogfd, struct ulog_raw_entry *raw, int copy_stderr)
 int main(int argc, char *argv[])
 {
 	char buf[256];
-	char path[4096];
+	char path[128];
 	struct timespec ts;
 	int c, i, copy_stderr = 0, has_time = 0;
 	const char *parse_pos;

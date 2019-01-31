@@ -58,6 +58,7 @@ int main(int argc, char *argv[])
 			snprintf(buf, sizeof(buf), WRAPPER" %s", libs);
 			value = buf;
 		}
+		/* coverity[tainted_string] */
 		setenv("LD_PRELOAD", value, 1);
 		/* make sure we disable syslog fallback in libulog */
 		setenv("ULOG_NOSYSLOG", "yes", 1);
