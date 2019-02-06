@@ -194,7 +194,6 @@
 	do { \
 		if ((_cond)) { \
 			ULOG_ERRNO("", (_err)); \
-			/* codecheck_ignore[RETURN_PARENTHESES] */ \
 			return -(_err); \
 		} \
 	} while (0)
