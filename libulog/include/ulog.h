@@ -131,6 +131,13 @@
 #include <time.h>
 #include <stdbool.h>
 
+/**
+ * Thread-local storage (TLS) support.
+ */
+#ifndef ULOG_THREAD
+#define ULOG_THREAD __thread
+#endif
+
 /*----------------------------------------------------------------------------*/
 /* ULOG API */
 
@@ -460,8 +467,8 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 
 #define ulog_log_throttle(_ms, _prio, _cookie, _fmt, ...)		\
 	do {								\
-		static __thread unsigned int __masked;			\
-		static __thread unsigned long long __last;		\
+		static ULOG_THREAD unsigned int __masked;		\
+		static ULOG_THREAD unsigned long long __last;		\
 		struct timespec __tp;					\
 		unsigned long long __now;				\
 									\
@@ -493,8 +500,8 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 
 #define ulog_log_change(_value, _prio, _cookie, ...)			\
 	do {								\
-		static __thread int __initialized;			\
-		static __thread uintptr_t __last_value;			\
+		static ULOG_THREAD int __initialized;			\
+		static ULOG_THREAD uintptr_t __last_value;		\
 		uintptr_t __value = (uintptr_t)(_value);		\
 		if ((__value != __last_value) || !__initialized) {	\
 			ulog_log((_prio), (_cookie), __VA_ARGS__);	\
