@@ -39,8 +39,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #define SHDLOGD_DEFAULT_PERIOD_MS 50
 #define SHDLOGD_DEFAULT_SECTION_NAME "ulog"
 #define SHDLOGD_DEFAULT_DEVICE_NAME NULL
-#define SHDLOGD_THREADX_PROCESS_NAME "threadx"
-#define SHDLOGD_THREADX_DEFAULT_PID 0
+#define SHDLOGD_DEFAULT_PROCESS_NAME "rtos"
+#define SHDLOGD_DEFAULT_PID 0
 
 static struct {
 	bool stop;
@@ -68,11 +68,11 @@ static struct {
 	.ulogfd = -1,
 	.raw = {
 		.entry = {
-			.pid = SHDLOGD_THREADX_DEFAULT_PID,
-			.tid = SHDLOGD_THREADX_DEFAULT_PID,
+			.pid = SHDLOGD_DEFAULT_PID,
+			.tid = SHDLOGD_DEFAULT_PID,
 		},
-		.pname = SHDLOGD_THREADX_PROCESS_NAME,
-		.pname_len = sizeof(SHDLOGD_THREADX_PROCESS_NAME),
+		.pname = SHDLOGD_DEFAULT_PROCESS_NAME,
+		.pname_len = sizeof(SHDLOGD_DEFAULT_PROCESS_NAME),
 	},
 	.shd = {
 		.ctx = NULL,
@@ -103,7 +103,7 @@ static void fill_raw_entry(struct ulog_raw_entry *raw,
 	if (blob->thnsize)
 		raw->entry.tid = blob->tid;
 	else
-		raw->entry.tid = SHDLOGD_THREADX_DEFAULT_PID;
+		raw->entry.tid = SHDLOGD_DEFAULT_PID;
 	raw->entry.sec = ts->tv_sec;
 	raw->entry.nsec = ts->tv_nsec;
 
