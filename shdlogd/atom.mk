@@ -9,14 +9,13 @@ LOCAL_MODULE := shdlogd
 LOCAL_CATEGORY_PATH := ulog
 LOCAL_DESCRIPTION := daemon reading ulogs in the shared memory
 
-LOCAL_DEPENDS_HEADERS := libulog-shd
-
 LOCAL_SRC_FILES := \
 	src/shdlogd.c
 
 LOCAL_LIBRARIES := \
 	libshdata \
 	libpomp \
+	libulog-shd-headers \
 	libulog \
 	libfutils
 

@@ -1,11 +1,11 @@
 LOCAL_PATH := $(call my-dir)
 
 ##############################################################################
-# libulog-shd
+# libulog-shd-headers
 ##############################################################################
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := libulog-shd
+LOCAL_MODULE := libulog-shd-headers
 LOCAL_CATEGORY_PATH := ulog
 LOCAL_DESCRIPTION := shared memory blob description for ulog messages
 
