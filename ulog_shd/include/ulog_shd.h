@@ -36,7 +36,7 @@ struct ulog_shd_blob {
 	int32_t tagsize;		/* tag name size */
 	int32_t logsize;		/* Log message size */
 	char buf[ULOG_BUF_SIZE];	/* buffer for thread/tag/log */
-};
+} __attribute__((packed, aligned(4)));
 
 int ulog_shd_init(const char *section_name, uint32_t max_nb_logs);
 
