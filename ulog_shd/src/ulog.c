@@ -29,11 +29,11 @@
 static struct {
 	bool shd_enabled;
 	struct shd_ctx *shd;
+	uint16_t index;
 } ctrl = {
 	.shd_enabled = false,
+	.index = 1,
 };
-
-static uint16_t index = 1;
 
 #define ULOG_WRITE_RATE_USEC 10000
 
@@ -85,7 +85,7 @@ static void ulog_shd_write(uint32_t prio, struct ulog_cookie *cookie,
 		blob.buf[ULOG_BUF_SIZE - 1] = '\0';
 
 	time_get_monotonic(&sample.ts);
-	blob.index = index++;
+	blob.index = ctrl.index++;
 
 	sample.cdata = (void *)&blob;
 	sample.data_size = sizeof(blob);
