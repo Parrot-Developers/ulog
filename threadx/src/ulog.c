@@ -317,7 +317,7 @@ ULOG_EXPORT int ulog_get_tag_names(const char **nametab, int maxlen)
 	return idx;
 }
 
-void ulog_early_init(void)
+void ulog_amba_early_init(void)
 {
 	/* Threadx mutex can't be created statically,
 	 * they need to be created before any thread try to use it. */

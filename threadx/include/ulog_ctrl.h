@@ -18,8 +18,8 @@
 #ifndef _PARROT_ULOG_CTRL_H_
 #define _PARROT_ULOG_CTRL_H_
 
-void ulog_early_init(void);
-void ulog_shd_init(void);
+void ulog_amba_early_init(void);
+void ulog_amba_shd_init(void);
 char ulog_prio2char(int prio);
 
 int parse_level(int c);

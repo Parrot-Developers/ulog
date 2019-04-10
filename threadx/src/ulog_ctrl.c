@@ -106,7 +106,7 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 }
 
 
-void ulog_shd_init(void)
+void ulog_amba_shd_init(void)
 {
 	struct shd_hdr_user_info header;
 	unsigned int meta = 0;
