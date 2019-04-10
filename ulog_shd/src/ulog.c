@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <sys/prctl.h>
 #include <pthread.h>
+#include <string.h>
 #include <futils/futils.h>
 #include <libshdata.h>
 #include <ulog.h>
@@ -58,8 +59,10 @@ static void ulog_shd_write(uint32_t prio, struct ulog_cookie *cookie,
 		if (blob.thnsize < 0)
 			blob.thnsize = 0;
 		else if (blob.thnsize >= ULOG_BUF_SIZE)
+			/* output was truncated */
 			blob.thnsize = ULOG_BUF_SIZE;
 		else
+			/* add the terminating null byte in buffer */
 			blob.thnsize += 1;
 
 	} else {
@@ -69,16 +72,20 @@ static void ulog_shd_write(uint32_t prio, struct ulog_cookie *cookie,
 	blob.tid = (uint32_t)pthread_self();
 
 	offset += blob.thnsize;
-	blob.tagsize = cookie->namesize;
-	memcpy(&blob.buf[offset], cookie->name, blob.tagsize);
+	if (offset < ULOG_BUF_SIZE) {
+		blob.tagsize = MIN(cookie->namesize, ULOG_BUF_SIZE - offset);
+		memcpy(&blob.buf[offset], cookie->name, blob.tagsize);
+	} else {
+		blob.tagsize = 0;
+	}
 
 	offset += blob.tagsize;
-	if (len < ULOG_BUF_SIZE - offset)
-		blob.logsize = len;
-	else
-		blob.logsize = ULOG_BUF_SIZE - offset;
-
-	memcpy(&blob.buf[offset], buf, blob.logsize);
+	if (offset < ULOG_BUF_SIZE) {
+		blob.logsize = MIN(len, ULOG_BUF_SIZE - offset);
+		memcpy(&blob.buf[offset], buf, blob.logsize);
+	} else {
+		blob.logsize = 0;
+	}
 
 	offset += blob.logsize;
 	if (offset == ULOG_BUF_SIZE)

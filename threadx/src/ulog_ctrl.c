@@ -17,13 +17,14 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
+#include <futils/futils.h>
 #include <libshdata.h>
 #include <ulog_shd.h>
 #include "AmbaDataType.h"
 #include "AmbaKAL.h"
 #include "AmbaPrint.h"
 #include "tx_thread.h"
-#include "futils/timetools.h"
 
 #define ULOG_TAG ulog_ctrl
 #include "ulog.h"
@@ -69,8 +70,10 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 		if (blob.thnsize < 0)
 			blob.thnsize = 0;
 		else if (blob.thnsize >= ULOG_BUF_SIZE)
+			/* output was truncated */
 			blob.thnsize = ULOG_BUF_SIZE;
 		else
+			/* add the terminating null byte */
 			blob.thnsize += 1;
 
 		/* We have no way to get a relevant thread id for now;
@@ -82,12 +85,20 @@ static void ulog_shd_put(unsigned long long ts, int prio,
 	}
 
 	offset += blob.thnsize;
-	blob.tagsize = min(tagsize, ULOG_BUF_SIZE - offset);
-	memcpy(&blob.buf[offset], tag, blob.tagsize);
+	if (offset < ULOG_BUF_SIZE) {
+		blob.tagsize = MIN(tagsize, ULOG_BUF_SIZE - offset);
+		memcpy(&blob.buf[offset], tag, blob.tagsize);
+	} else {
+		blob.tagsize = 0;
+	}
 
 	offset += blob.tagsize;
-	blob.logsize = min(logsize,  ULOG_BUF_SIZE - offset);
+	if (offset < ULOG_BUF_SIZE) {
+		blob.logsize = MIN(logsize,  ULOG_BUF_SIZE - offset);
 		memcpy(&blob.buf[offset], log, blob.logsize);
+	} else {
+		blob.logsize = 0;
+	}
 
 	offset += blob.logsize;
 	if (offset == ULOG_BUF_SIZE)
