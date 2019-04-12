@@ -281,8 +281,8 @@ int main(int argc, char **argv)
 
 	ret = ulog_raw_open(ctx.device);
 	if (ret < 0) {
-		ULOGE("can't open ulogger device in raw mode: %s",
-								strerror(-ret));
+		ULOGE("can't open ulogger device \"%s\" in raw mode: %s",
+				ctx.device, strerror(-ret));
 		goto finish;
 	}
 	ctx.ulogfd = ret;
