@@ -56,6 +56,9 @@ static struct {
 		struct shd_ctx *ctx;
 		struct shd_revision *rev;
 		struct shd_sample_search search;
+		size_t blobs_size;
+		struct ulog_shd_blob *blobs;
+		struct timespec *ts;
 	} shd;
 } ctx = {
 	.stop = false,
@@ -81,7 +84,11 @@ static struct {
 			.method = SHD_OLDEST,
 			.nb_values_before_date = 0,
 			.nb_values_after_date = ULOG_SHD_NB_SAMPLES - 1
-		}
+		},
+		.blobs_size = sizeof(struct ulog_shd_blob)
+			* ULOG_SHD_NB_SAMPLES,
+		.blobs = NULL,
+		.ts = NULL,
 	}
 };
 
@@ -130,8 +137,6 @@ static void fill_raw_entry(struct ulog_raw_entry *raw,
 
 static int read_samples()
 {
-	struct ulog_shd_blob blobs[ULOG_SHD_NB_SAMPLES];
-	struct timespec ts[ULOG_SHD_NB_SAMPLES];
 	struct shd_sample_metadata *metadata = NULL;
 	struct shd_search_result result;
 	int ret, i;
@@ -147,10 +152,11 @@ static int read_samples()
 
 	/* Save timestamps */
 	for (i = 0; i < result.nb_matches; i++)
-		ts[i] = metadata[i].ts;
+		ctx.shd.ts[i] = metadata[i].ts;
 
 	/* Read samples */
-	ret = shd_read_quantity(ctx.shd.ctx, NULL, blobs, sizeof(blobs));
+	ret = shd_read_quantity(ctx.shd.ctx, NULL, ctx.shd.blobs,
+				ctx.shd.blobs_size);
 	if (ret < 0)
 		ULOGE("shd read samples failed: %s", strerror(-ret));
 
@@ -167,21 +173,21 @@ static int read_samples()
 	/* Send samples to ulog */
 	for (i = 0; i < result.nb_matches; i++) {
 
-		fill_raw_entry(&ctx.raw, &blobs[i], &ts[i]);
+		fill_raw_entry(&ctx.raw, &ctx.shd.blobs[i], &ctx.shd.ts[i]);
 		ret = ulog_raw_log(ctx.ulogfd, &ctx.raw);
 
 		/* check index vs previous index */
-		d = blobs[i].index - ctx.index - 1;
+		d = ctx.shd.blobs[i].index - ctx.index - 1;
 		if (d > 0)
 			ULOGE("%d shared memory log messages lost", d);
 		else if (d < 0)
 			ULOGE("many shared memory log messages lost");
 
-		ctx.index = blobs[i].index;
+		ctx.index = ctx.shd.blobs[i].index;
 	}
 
 	/* add 1ns to the last received sample timestamp to get the next ones */
-	time_timespec_add_ns(&ts[result.nb_matches - 1], 1,
+	time_timespec_add_ns(&ctx.shd.ts[result.nb_matches - 1], 1,
 							&ctx.shd.search.date);
 
 	return 0;
@@ -294,6 +300,21 @@ int main(int argc, char **argv)
 		goto finish;
 	}
 
+	ctx.shd.blobs = malloc(ctx.shd.blobs_size);
+	if (!ctx.shd.blobs) {
+		ULOGE("can't allocate memory for blobs");
+		ret = -ENOMEM;
+		goto finish;
+	}
+
+	ctx.shd.ts =
+		malloc(sizeof(struct timespec) * ULOG_SHD_NB_SAMPLES);
+	if (!ctx.shd.ts) {
+		ULOGE("can't allocate memory for timespecs");
+		ret = -ENOMEM;
+		goto finish;
+	}
+
 	/* Read oldest sample to get a timestamp reference */
 	do {
 		ret = read_samples();
@@ -315,6 +336,9 @@ int main(int argc, char **argv)
 	}
 
 finish:
+	free(ctx.shd.ts);
+	free(ctx.shd.blobs);
+
 	if (ctx.shd.ctx)
 		shd_close(ctx.shd.ctx, ctx.shd.rev);
 	if (ctx.ulogfd >= 0)
