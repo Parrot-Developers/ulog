@@ -14,6 +14,8 @@ LOCAL_LIBRARIES := libulog glib
 
 include $(BUILD_STATIC_LIBRARY)
 
+ifneq ("$(TARGET_OS)","darwin")
+
 include $(CLEAR_VARS)
 LOCAL_MODULE := libulog-gst
 LOCAL_DESCRIPTION := Redirect gstreamer logging to ulog
@@ -26,6 +28,8 @@ LOCAL_SRC_FILES := ulog_gst.c
 LOCAL_LIBRARIES := libulog gstreamer
 
 include $(BUILD_STATIC_LIBRARY)
+
+endif
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := libulog-obus
