@@ -514,6 +514,7 @@ typedef void (*ulog_write_func_t) (uint32_t prio, struct ulog_cookie *cookie,
 		  const char *buf, int len);
 
 int ulog_set_write_func(ulog_write_func_t func);
+ulog_write_func_t ulog_get_write_func(void);
 
 typedef void (*ulog_cookie_register_func_t) (struct ulog_cookie *cookie);
 

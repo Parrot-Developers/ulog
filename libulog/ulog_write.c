@@ -142,54 +142,57 @@ static void __writer_stderr_wrapper(uint32_t prio, struct ulog_cookie *cookie,
 			priotab[prio & ULOG_PRIO_LEVEL_MASK]);
 }
 
-static void __writer_init(uint32_t prio, struct ulog_cookie *cookie,
-			  const char *buf, int len)
+static void __ctrl_init(void)
 {
 	ulog_write_func_t writer = __writer_null;
 #ifndef _WIN32
 	const char *prop, *dev;
 	char devbuf[32];
 	struct stat st;
+
+	/* first try to use ulogger kernel device */
+	dev = "/dev/" ULOGGER_LOG_MAIN;
+	prop = getenv("ULOG_DEVICE");
+	if (prop) {
+		snprintf(devbuf, sizeof(devbuf), "/dev/ulog_%s", prop);
+		dev = devbuf;
+	}
+
+	ctrl.fd = open(dev, O_WRONLY|O_CLOEXEC);
+	if ((ctrl.fd >= 0) &&
+			/* sanity check: /dev/ulog_* must be device files */
+			((fstat(ctrl.fd, &st) < 0) || !S_ISCHR(st.st_mode))) {
+		close(ctrl.fd);
+		ctrl.fd = -1;
+	}
+
+	if (ctrl.fd >= 0)
+		writer = __writer_kernel;
+	else if (ulog_is_android())
+		writer = ulog_writer_android;
+	else
+		writer = __writer_null;
 #endif
 
+	/* optionally output a copy of messages to stderr */
+	if (getenv("ULOG_STDERR") || writer == __writer_null) {
+		ctrl.writer2 = writer;
+		writer = __writer_stderr_wrapper;
+		if (getenv("ULOG_STDERR_COLOR"))
+			writer = __writer_stderr_wrapper_color;
+	}
+	/* here we rely on the following assignment being atomic... */
+	ctrl.writer = writer;
+}
+
+static void __writer_init(uint32_t prio, struct ulog_cookie *cookie,
+			  const char *buf, int len)
+
+{
 	pthread_mutex_lock(&ctrl.lock);
 
-	if (ctrl.writer == __writer_init) {
-#ifndef _WIN32
-		/* first try to use ulogger kernel device */
-		dev = "/dev/" ULOGGER_LOG_MAIN;
-		prop = getenv("ULOG_DEVICE");
-		if (prop) {
-			snprintf(devbuf, sizeof(devbuf), "/dev/ulog_%s", prop);
-			dev = devbuf;
-		}
-
-		ctrl.fd = open(dev, O_WRONLY|O_CLOEXEC);
-		if ((ctrl.fd >= 0) &&
-		    /* sanity check: /dev/ulog_* must be device files */
-		    ((fstat(ctrl.fd, &st) < 0) || !S_ISCHR(st.st_mode))) {
-			close(ctrl.fd);
-			ctrl.fd = -1;
-		}
-
-		if (ctrl.fd >= 0)
-			writer = __writer_kernel;
-		else if (ulog_is_android())
-			writer = ulog_writer_android;
-		else
-			writer = __writer_null;
-#endif
-
-		/* optionally output a copy of messages to stderr */
-		if (getenv("ULOG_STDERR") || writer == __writer_null) {
-			ctrl.writer2 = writer;
-			writer = __writer_stderr_wrapper;
-			if (getenv("ULOG_STDERR_COLOR"))
-				writer = __writer_stderr_wrapper_color;
-		}
-		/* here we rely on the following assignment being atomic... */
-		ctrl.writer = writer;
-	}
+	if (ctrl.writer == __writer_init)
+		__ctrl_init();
 
 	pthread_mutex_unlock(&ctrl.lock);
 
@@ -220,6 +223,24 @@ ULOG_EXPORT int ulog_set_write_func(ulog_write_func_t func)
 
 	pthread_mutex_unlock(&ctrl.lock);
 	return 0;
+}
+
+ULOG_EXPORT ulog_write_func_t ulog_get_write_func(void)
+{
+	ulog_write_func_t writer;
+
+	pthread_mutex_lock(&ctrl.lock);
+
+	if (ctrl.writer == __writer_init)
+		__ctrl_init();
+
+	if (!getenv("ULOG_STDERR"))
+		writer = ctrl.writer;
+	else
+		writer = ctrl.writer2;
+
+	pthread_mutex_unlock(&ctrl.lock);
+	return writer;
 }
 
 ULOG_EXPORT int ulog_set_cookie_register_func(ulog_cookie_register_func_t func)
