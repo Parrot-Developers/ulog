@@ -1,0 +1,8 @@
+# For more information about the properties used in
+# this file, please see the EditorConfig documentation:
+# http://editorconfig.org/
+
+[*.{c,h,mk,sh}]
+indent_style = tab
+indent_size = 8
+max_line_length = 80
