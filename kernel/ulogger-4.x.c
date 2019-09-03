@@ -43,6 +43,20 @@
 
 #include <asm/ioctls.h>
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
+/* Kernels 5.x require to (re)define the macros used below */
+#ifdef iov_for_each
+#undef iov_for_each
+#endif
+#define iov_for_each(iov, iter, start)                     \
+	if (!((start).type & (ITER_BVEC | ITER_PIPE)))     \
+	for (iter = (start);                               \
+		(iter).count &&                            \
+		((iov = iov_iter_iovec(&(iter))), 1);      \
+		iov_iter_advance(&(iter), (iov).iov_len))
+#endif
+
+
 /*
  * struct ulogger_log - represents a specific log, such as 'main' or 'radio'
  *
@@ -559,18 +573,18 @@ static ssize_t do_write_log_from_user(struct ulogger_log *log,
  */
 ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
+	#define commlen (sizeof(current->comm))
 	struct ulogger_log *log = file_get_log(iocb->ki_filp);
 	size_t orig;
 	struct ulogger_entry header;
 	struct timespec now;
 	ssize_t ret = 0;
-	const size_t commlen = sizeof(current->comm);
 	const size_t prefix = sizeof(header.len) + sizeof(header.hdr_size);
 	char tcomm[commlen+4];
 	char pcomm[commlen+4];
-	size_t size, tlen, plen, len = iov_iter_count(from);
+	size_t size, tlen = 0, plen = 0, len = iov_iter_count(from);
 	struct iovec iov;
-	struct iov_iter i;
+	struct iov_iter iter;
 	const bool rawmode = file_get_private_flag(iocb->ki_filp);
 
 	if (rawmode) {
@@ -643,7 +657,7 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		size -= prefix;
 	}
 
-	iov_for_each(iov, i, *from) {
+	iov_for_each(iov, iter, *from) {
 		size_t len;
 		ssize_t nr;
 
