@@ -169,9 +169,12 @@
  * numerical + sting (it assumes an errno). The priority will be ERR.
  */
 #define ULOG_ERRNO(_fmt, _err, ...) \
-	ULOGE("%s:%d: " _fmt " err=%d(%s)", \
-		__func__, __LINE__, ##__VA_ARGS__, \
-			_err, strerror(_err))
+	do { \
+		int __ulog_errno__err = (_err); \
+		ULOGE("%s:%d: " _fmt " err=%d(%s)", \
+		      __func__, __LINE__, ##__VA_ARGS__, \
+		      __ulog_errno__err, strerror(__ulog_errno__err)); \
+	} while (0)
 
 /**
  * Log an errno message (with the provided positive errno)
@@ -194,8 +197,9 @@
 #define ULOG_ERRNO_RETURN_ERR_IF(_cond, _err) \
 	do { \
 		if ((_cond)) { \
-			ULOG_ERRNO("", (_err)); \
-			return -(_err); \
+			int __ulog_errno_return_err_if__err = (_err); \
+			ULOG_ERRNO("", (__ulog_errno_return_err_if__err)); \
+			return -(__ulog_errno_return_err_if__err); \
 		} \
 	} while (0)
 
