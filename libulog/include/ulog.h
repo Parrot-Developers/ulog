@@ -136,6 +136,7 @@
  */
 #ifndef ULOG_THREAD
 #define ULOG_THREAD __thread
+#define ULOG_USE_TLS 1
 #endif
 
 /*----------------------------------------------------------------------------*/
@@ -498,6 +499,13 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 #define ULOG_CHANGE(_value, _prio, ...)					\
 	ulog_log_change(_value, _prio, &__ULOG_COOKIE, __VA_ARGS__)
 
+#ifdef ULOG_USE_TLS
+
+#define ULOG_DECLARE_CHANGE_STATE_INT(__var) int __var
+
+/* codecheck_ignore[COMPLEX_MACRO] */
+#define ULOG_INIT_CHANGE_STATE_INT(__var, __value) __var = __value
+
 #define ulog_log_change(_value, _prio, _cookie, ...)			\
 	do {								\
 		static ULOG_THREAD int __initialized;			\
@@ -509,6 +517,30 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 			__initialized = 1;				\
 		}							\
 	} while (0)
+#else
+
+#define ULOG_DECLARE_CHANGE_STATE_INT(__var) int __var;\
+					 uintptr_t __var##u_last;\
+					 int __var##u_init
+
+#define ULOG_INIT_CHANGE_STATE_INT(__var, __value)\
+	do {\
+		__var = __value;\
+		__var##u_last = __value;\
+		__var##u_init = 0;\
+	} while (0)
+
+#define ulog_log_change(_value, _prio, _cookie, ...)			\
+	do {								\
+		uintptr_t __value = (uintptr_t)(_value);		\
+		if ((__value != _value##u_last) || !_value##u_init) {	\
+			ulog_log((_prio), (_cookie), __VA_ARGS__);	\
+			_value##u_last = __value;			\
+			_value##u_init = 1;				\
+		}							\
+	} while (0)
+
+#endif
 
 void ulog_log_buf(uint32_t prio, struct ulog_cookie *cookie, const void *buf,
 		  int size);
