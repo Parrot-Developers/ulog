@@ -244,12 +244,14 @@ class ULogHandler(logging.Handler):
         prio = _logging_prio_map[record.levelno]
         tag = record.name.encode("utf-8")
         message = self.format(record).encode("utf-8")
-        if self._raw_mode:
-            raw = RawEntry()
-            self.format_raw_entry(raw, prio, tag, message)
-            self.write_raw_entry(raw)
-        else:
-            self.write(prio, tag, message)
+        lines = message.splitlines()
+        for line in lines:
+            if self._raw_mode:
+                raw = RawEntry()
+                self.format_raw_entry(raw, prio, tag, line)
+                self.write_raw_entry(raw)
+            else:
+                self.write(prio, tag, line)
 
     def format_raw_entry(self, raw, prio, tag, message):
         raw.entry.pid = self.pid
