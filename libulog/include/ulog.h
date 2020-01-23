@@ -129,6 +129,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
+#include <stdbool.h>
 
 /*----------------------------------------------------------------------------*/
 /* ULOG API */
@@ -387,7 +388,8 @@ struct ulog_cookie {
 extern struct ulog_cookie __ulog_default_cookie;
 
 #if !defined(UNLIKELY)
-#define UNLIKELY(x)	__builtin_expect(!!(x), 0)
+/* codecheck_ignore[SPACING], needed for the macro to be considered same */
+#define UNLIKELY( exp ) (__builtin_expect( (exp) != 0, false ))
 #endif
 
 void ulog_init_cookie(struct ulog_cookie *cookie);
