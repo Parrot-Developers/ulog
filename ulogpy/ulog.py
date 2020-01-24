@@ -87,7 +87,7 @@ def disable_bridge(logger):
 RawEntry = _ulog.struct_ulog_raw_entry
 
 
-class ULogHandler(logging.Handler):
+class ULogDeviceHandler(logging.Handler):
 
     def __init__(self, device_name=b"main", level=logging.NOTSET, raw_mode=True):
         super().__init__(level=level)
@@ -283,3 +283,39 @@ class ULogHandler(logging.Handler):
             _ulog.ulog_raw_close(self.fd)
         else:
             os.close(self.fd)
+
+
+class ULogHandler(logging.Handler):
+
+    def __init__(self, level=logging.NOTSET):
+        super().__init__(level=level)
+
+        # Setup master cookie (not used for actual logging)
+        name = b"ulog_py"
+        self.master_cookie = _ulog.struct_ulog_cookie()
+        self.master_cookie.name = ctypes.create_string_buffer(name)
+        self.master_cookie.namesize = len(name) + 1
+        self.master_cookie.level = -1
+        self.master_cookie.userdata = None
+        self.master_cookie.next = None
+        _ulog.ulog_init_cookie(self.master_cookie)
+
+    def emit(self, record):
+        prio = _logging_prio_map[record.levelno]
+        tag = record.name.encode("utf-8")
+
+        # Master cookie level, this should have been initialized
+        masterlevel = self.master_cookie.level
+
+        # Use temporary cookie
+        cookie = _ulog.struct_ulog_cookie()
+        cookie.name = ctypes.create_string_buffer(tag)
+        cookie.namesize = len(tag) + 1
+        # This is safe only because level is non-negative
+        cookie.level = masterlevel
+        cookie.next = None
+
+        message = self.format(record).encode("utf-8")
+        lines = message.splitlines()
+        for line in lines:
+            _ulog.ulog_log_str(prio, cookie, line)
