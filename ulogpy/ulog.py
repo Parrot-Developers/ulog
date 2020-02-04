@@ -36,7 +36,8 @@ _ulog_loggers = []
 def _ulog_bridge(prio, ulog_cookie, buf, size):
     # 1. forward the logs to ulogger kernel module
     global ulog_kernel_write_func
-    ulog_kernel_write_func(prio, ulog_cookie, buf, size)
+    if ulog_kernel_write_func is not None:
+        ulog_kernel_write_func(prio, ulog_cookie, buf, size)
 
     # 2. handle the python logging side of things
     message = _ulog.string_cast(buf)
@@ -62,20 +63,22 @@ ulog_kernel_write_func = None
 ulog_write_func = _ulog.ulog_write_func_t(_ulog_bridge)
 
 
-def enable_bridge(logger):
+def enable_bridge(logger, forward=True):
     global _ulog_loggers
     if logger not in _ulog_loggers:
         _ulog_loggers.append(logger)
 
     global ulog_kernel_write_func
-    if ulog_kernel_write_func is None:
+    if not forward:
+        ulog_kernel_write_func = None
+    elif ulog_kernel_write_func is None:
         # backup the ulog kernel write function ...
         ulog_kernel_write_func = _ulog.ulog_get_write_func()
-        # ... before overriding it
-        res = _ulog.ulog_set_write_func(ulog_write_func)
-        if res != 0:
-            ulog_kernel_write_func = None
-            raise RuntimeError("Failed to init ulog write func")
+    # override ulog write function
+    res = _ulog.ulog_set_write_func(ulog_write_func)
+    if res != 0:
+        ulog_kernel_write_func = None
+        raise RuntimeError("Failed to init ulog write func")
 
 
 def disable_bridge(logger):
