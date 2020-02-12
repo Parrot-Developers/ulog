@@ -70,6 +70,7 @@ void openlog(const char *ident,
 		ulog_log(ULOG_INFO, &cookie, "redirecting syslog to ulog");
 }
 
+__attribute__ ((format (printf, 2, 3)))
 void syslog(int priority, const char *format, ...)
 {
 	va_list ap;
@@ -86,6 +87,7 @@ void closelog(void)
 {
 }
 
+__attribute__ ((format (printf, 2, 0)))
 void vsyslog(int priority, const char *format, va_list ap)
 {
 	if (!init_done)
@@ -94,6 +96,7 @@ void vsyslog(int priority, const char *format, va_list ap)
 	ulog_vlog(priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
 }
 
+__attribute__ ((format (printf, 3, 4)))
 void __syslog_chk(int priority,
 		  int flag __attribute__((unused)),
 		  const char *format, ...)
@@ -108,6 +111,7 @@ void __syslog_chk(int priority,
 	va_end(ap);
 }
 
+__attribute__ ((format (printf, 3, 0)))
 void __vsyslog_chk(int priority,
 		   int flag __attribute__((unused)),
 		   const char *format, va_list ap)
