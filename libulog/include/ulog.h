@@ -167,7 +167,7 @@
 /**
  * Log a message that will automatically be predended with the name of the
  * calling function and line number. It will also append the given error as
- * numerical + sting (it assumes an errno). The priority will be ERR.
+ * numerical + string (it assumes an errno). The priority will be ERR.
  */
 #define ULOG_ERRNO(_fmt, _err, ...) \
 	do { \
