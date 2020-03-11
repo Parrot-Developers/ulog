@@ -288,7 +288,7 @@ static int process_devices(struct ulogcat3_context *ctx, int timeout_ms)
 	}
 
 	/* force non-blocking wait if we have pending frames */
-	if (ctx->pending > 0)
+	if (ctx->pending > 0 || (!ctx->mark_reached && ctx->tail > 0))
 		timeout_ms = 0;
 
 	ret = poll(ctx->fds, ctx->device_count, timeout_ms);
