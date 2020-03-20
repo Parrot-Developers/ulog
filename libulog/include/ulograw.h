@@ -21,6 +21,7 @@
 #define _PARROT_ULOGRAW_H
 
 #include <stdint.h>
+#include <sys/uio.h>
 #include <ulog.h>
 #include "ulogger.h"
 
@@ -84,6 +85,17 @@ void ulog_raw_close(int fd);
  * @return       0 if successful, -errno upon failure.
  */
 int ulog_raw_log(int fd, const struct ulog_raw_entry *raw);
+
+/**
+ * Same as ulog_raw_log but with the message specified as an array of iovec.
+ *
+ * @param fd     A descriptor returned by @ulog_raw_open().
+ * @param raw    A raw ulog entry, see @ulog_raw_entry for details.
+ * @return       0 if successful, -errno upon failure.
+ */
+int ulog_raw_logv(int fd, const struct ulog_raw_entry *raw,
+		const struct iovec *iov,
+		int iovcnt);
 
 #ifdef __cplusplus
 }

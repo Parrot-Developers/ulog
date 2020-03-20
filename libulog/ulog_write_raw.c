@@ -85,13 +85,36 @@ ULOG_EXPORT void ulog_raw_close(int fd)
 
 ULOG_EXPORT int ulog_raw_log(int fd, const struct ulog_raw_entry *raw)
 {
-	int i = 0;
+	struct ulog_raw_entry tmp_raw;
+	struct iovec vec[1];
+
+	if (!raw)
+		return -EINVAL;
+
+	/* copy message in local iovec */
+	vec[0].iov_base = (void *)raw->message;
+	vec[0].iov_len = raw->message_len;
+
+	/* copy raw structure and clear message */
+	tmp_raw = *raw;
+	tmp_raw.message = NULL;
+	tmp_raw.message_len = 0;
+
+	/* call version taking iovec array */
+	return ulog_raw_logv(fd, &tmp_raw, vec, 1);
+}
+
+ULOG_EXPORT int ulog_raw_logv(int fd, const struct ulog_raw_entry *raw,
+		const struct iovec *iov,
+		int iovcnt)
+{
+	int i = 0, j;
 	ssize_t ret;
-	struct iovec vec[6];
+	struct iovec vec[6 + iovcnt];
 	const struct ulogger_entry *entry = &raw->entry;
 	const size_t prefix = sizeof((*entry).len) + sizeof((*entry).hdr_size);
 
-	if ((fd < 0) || !raw)
+	if ((fd < 0) || !raw || raw->message)
 		return -EINVAL;
 
 	/*
@@ -111,6 +134,7 @@ ULOG_EXPORT int ulog_raw_log(int fd, const struct ulog_raw_entry *raw)
 	vec[i].iov_base = (void *)((uint8_t *)entry + prefix);
 	vec[i].iov_len = sizeof(*entry) - prefix;
 	i++;
+
 	/* process name, must be null-terminated */
 	vec[i].iov_base = (void *)raw->pname;
 	vec[i].iov_len = raw->pname_len;
@@ -121,18 +145,23 @@ ULOG_EXPORT int ulog_raw_log(int fd, const struct ulog_raw_entry *raw)
 		vec[i].iov_len = raw->tname_len;
 		i++;
 	}
+
 	/* priority, color, binary flags, ... */
 	vec[i].iov_base = (void *)&raw->prio;
-	vec[i].iov_len = 4;
+	vec[i].iov_len = sizeof(raw->prio);
 	i++;
+
 	/* tag, must be null-terminated */
 	vec[i].iov_base = (void *)raw->tag;
 	vec[i].iov_len = raw->tag_len;
 	i++;
+
 	/* payload: null-terminated string or binary data */
-	vec[i].iov_base = (void *)raw->message;
-	vec[i].iov_len = raw->message_len;
-	i++;
+	for (j = 0; j < iovcnt; j++) {
+		vec[i].iov_base = iov[j].iov_base;
+		vec[i].iov_len = iov[j].iov_len;
+		i++;
+	}
 
 	/* send everything to kernel */
 	do {
