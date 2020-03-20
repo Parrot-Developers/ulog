@@ -33,6 +33,8 @@
 #include "ulogger.h"
 #include "ulog_common.h"
 
+static ulog_bin_write_func_t s_write_func;
+
 ULOG_EXPORT int ulog_bin_open(const char *dev)
 {
 	const char *prop;
@@ -96,10 +98,18 @@ ULOG_EXPORT int ulog_bin_writev(int fd,
 	uint32_t prio = ULOG_INFO | (1U << ULOG_PRIO_BINARY_SHIFT);
 	struct iovec vec[2 + iovcnt];
 	int i;
+	ulog_bin_write_func_t func;
+
+	/* Handle custom write function if any, Assume this read is atomic */
+	func = s_write_func;
+	if (func != NULL) {
+		(*func)(tag, tagsize, iov, iovcnt);
+		return 0;
+	}
 
 	/* priority, binary flags, ... */
 	vec[0].iov_base = (void *)&prio;
-	vec[0].iov_len = 4;
+	vec[0].iov_len = sizeof(prio);
 
 	/* tag, must be null-terminated */
 	vec[1].iov_base = (void *)tag;
@@ -117,4 +127,17 @@ ULOG_EXPORT int ulog_bin_writev(int fd,
 	} while ((ret < 0) && (errno == EINTR));
 
 	return ret > 0 ? 0 : -errno;
+}
+
+ULOG_EXPORT int ulog_bin_set_write_func(ulog_bin_write_func_t func)
+{
+	/* Assume this write is atomic */
+	s_write_func = func;
+	return 0;
+}
+
+ulog_bin_write_func_t ulog_bin_get_write_func(void)
+{
+	/* Assume this read is atomic */
+	return s_write_func;
 }

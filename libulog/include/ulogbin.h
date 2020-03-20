@@ -31,6 +31,11 @@ extern "C" {
 
 #define ULOG_BIN_DEFAULT	"ulog_mainbin"
 
+typedef void (*ulog_bin_write_func_t) (const char *tag,
+	size_t tagsize,
+	const struct iovec *iov,
+	int iovcnt);
+
 /**
  * Open a ulogger device for logging in bin mode.
  *
@@ -79,6 +84,19 @@ int ulog_bin_writev(int fd,
 	size_t tagsize,
 	const struct iovec *iov,
 	int iovcnt);
+
+/**
+ * Set a custom write function to overwrite default behaviour
+ * @param func New write function
+ * @return     0 if successful, -errno upon failure.
+ */
+int ulog_bin_set_write_func(ulog_bin_write_func_t func);
+
+/**
+ * Retrieve the custom write function.
+ * @return custom write function or NULL if none was set.
+ */
+ulog_bin_write_func_t ulog_bin_get_write_func(void);
 
 #ifdef __cplusplus
 }
