@@ -319,6 +319,11 @@ class ULogHandler(logging.Handler):
         cookie.next = None
 
         message = self.format(record).encode("utf-8")
+
+        # Force logging as Notice(level 5 in ulog) if message is an event
+        if message.startswith(b"EVT:"):
+            prio = 5
+
         lines = message.splitlines()
         for line in lines:
             _ulog.ulog_log_str(prio, cookie, line)
