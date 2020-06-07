@@ -885,10 +885,16 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 			ret = -EBADF;
 			break;
 		}
+		/* Our use of the raw mode on i386/x86_64 for the sphinx
+		 * simulator requires us to allow any user to switch to raw mode
+		 * To be conservative, other platforms (like arm) keep old
+		 * restriction */
+#if !defined(__i386__) && !defined(__x86_64__)
 		if (!capable(CAP_SYS_ADMIN)) {
 			ret = -EPERM;
 			break;
 		}
+#endif
 		ret = ulogger_set_raw_mode(file, argp);
 		break;
 	}
