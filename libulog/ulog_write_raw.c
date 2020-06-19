@@ -111,11 +111,13 @@ ULOG_EXPORT int ulog_raw_logv(int fd, const struct ulog_raw_entry *raw,
 	int i = 0, j;
 	ssize_t ret;
 	struct iovec vec[6 + iovcnt];
-	const struct ulogger_entry *entry = &raw->entry;
+	const struct ulogger_entry *entry;
 	const size_t prefix = sizeof((*entry).len) + sizeof((*entry).hdr_size);
 
 	if ((fd < 0) || !raw || raw->message)
 		return -EINVAL;
+
+	entry = &raw->entry;
 
 	/*
 	 * Reject entries with both pid and tid equal to -1: these are used
