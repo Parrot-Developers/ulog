@@ -192,7 +192,7 @@
  */
 #define ULOG_ERRNO_RETURN_IF(_cond, _err) \
 	do { \
-		if ((_cond)) { \
+		if (ULOG_UNLIKELY(_cond)) { \
 			ULOG_ERRNO("", (_err)); \
 			return; \
 		} \
@@ -205,7 +205,7 @@
  */
 #define ULOG_ERRNO_RETURN_ERR_IF(_cond, _err) \
 	do { \
-		if ((_cond)) { \
+		if (ULOG_UNLIKELY(_cond)) { \
 			int __ulog_errno_return_err_if__err = (_err); \
 			ULOG_ERRNO("", (__ulog_errno_return_err_if__err)); \
 			return -(__ulog_errno_return_err_if__err); \
@@ -219,7 +219,7 @@
  */
 #define ULOG_ERRNO_RETURN_VAL_IF(_cond, _err, _val) \
 	do { \
-		if ((_cond)) { \
+		if (ULOG_UNLIKELY(_cond)) { \
 			ULOG_ERRNO("", (_err)); \
 			/* codecheck_ignore[RETURN_PARENTHESES] */ \
 			return (_val); \
@@ -414,9 +414,10 @@ struct ulog_cookie {
 
 extern struct ulog_cookie __ulog_default_cookie;
 
-#if !defined(UNLIKELY)
-/* codecheck_ignore[SPACING], needed for the macro to be considered same */
-#define UNLIKELY( exp ) (__builtin_expect( (exp) != 0, false ))
+#if defined(UNLIKELY)
+#define ULOG_UNLIKELY(exp) UNLIKELY(exp)
+#else
+#define ULOG_UNLIKELY(exp) (__builtin_expect((exp) != 0, false))
 #endif
 
 void ulog_init_cookie(struct ulog_cookie *cookie);
@@ -440,7 +441,7 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 #define ulog_vlog(_prio, _cookie, _fmt, _ap)				\
 	do {								\
 		uint32_t __p = (_prio);					\
-		if (UNLIKELY((_cookie)->level < 0))			\
+		if (ULOG_UNLIKELY((_cookie)->level < 0))		\
 			ulog_init_cookie((_cookie));			\
 		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <=		\
 				(_cookie)->level)			\
@@ -455,7 +456,7 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 #define ulog_log(_prio, _cookie, ...)					\
 	do {								\
 		uint32_t __p = (_prio);					\
-		if (UNLIKELY((_cookie)->level < 0))			\
+		if (ULOG_UNLIKELY((_cookie)->level < 0))		\
 			ulog_init_cookie((_cookie));			\
 		if ((int)(__p & ULOG_PRIO_LEVEL_MASK) <=		\
 				(_cookie)->level)			\
