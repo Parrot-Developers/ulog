@@ -34,7 +34,7 @@ src_dir="${workdir}/source"
 ulogger_src_dir="${src_dir}/${NAME}-${VERSION}"
 
 package="ulogger-dkms_${VERSION}"
-input_deb_file="${dkms_dir}/${NAME}/${VERSION}/deb/${package}_all.deb"
+input_deb_dir="${dkms_dir}/${NAME}/${VERSION}/deb"
 output_deb_file="${out_dir}/${package}-1_all.deb"
 
 DKMS_SETUP="--dkmstree ${dkms_dir} --sourcetree ${src_dir} --installtree ${install_dir}"
@@ -58,4 +58,4 @@ dkms mkdeb $DKMS_ARG --source-only
 
 cd ${start_dir}
 
-mv ${input_deb_file} ${output_deb_file}
+mv "${input_deb_dir}/${package}"*".deb" "${output_deb_file}"
