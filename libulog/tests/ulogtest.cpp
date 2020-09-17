@@ -33,7 +33,7 @@ using namespace std;
 namespace ulogtest {
     static void bar(void)
     {
-	ULOGI("hello from %s", __func__);
+        ULOGI("hello from %s", __func__);
     }
 }
 
@@ -76,6 +76,8 @@ int main(int argc, char* argv[])
 
     ulog_stdcerr_redirect();
     std::cerr << "this is a std::cerr log" << endl << "2nd log" << endl;
+
+    UlogNull << "this shall do nothing" << endl;
 
     return 0;
 }

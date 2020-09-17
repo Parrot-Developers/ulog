@@ -61,7 +61,7 @@ OstreamUlog::OstreamUlog(Ulogstream* p) : std::ostream(p)
 }
 
 // functor used to set the current tag
-OstreamUlog& OstreamUlog::operator()(struct ulog_cookie& cookie) 
+OstreamUlog& OstreamUlog::operator()(struct ulog_cookie& cookie)
 {
     Ulogstream* p = (Ulogstream*)rdbuf();
     p->setTag(cookie);
@@ -115,7 +115,7 @@ std::streamsize Ulogstream::xsputn (const char* s, std::streamsize n) // overrid
     return n;
 }
 
-int Ulogstream::sync() // override 
+int Ulogstream::sync() // override
 {
     std::string* ptr;
     ptr = (std::string*)pthread_getspecific(mBufKey);
@@ -146,7 +146,7 @@ void Ulogstream::keyBufDestructor(void* str)
 // create a "thread-specific data key"
 void Ulogstream::makeKeys()
 {
-    // no need for destructor here because we use pointers 
+    // no need for destructor here because we use pointers
     // on the statically allocated cookie structures.
     (void)pthread_key_create(&mTagKey, NULL);
     // destructor needed since we dynamically allocate strings.
@@ -165,6 +165,8 @@ CREATE_LOGGER(UlogNraw,ULOG_NOTICE);
 CREATE_LOGGER(UlogWraw,ULOG_WARN);
 CREATE_LOGGER(UlogEraw,ULOG_ERR);
 CREATE_LOGGER(UlogCraw,ULOG_CRIT);
+
+ULOG_EXPORT NullOstreamUlog UlogNullraw;
 
 } // namespace internal
 

@@ -42,6 +42,8 @@
 #define UlogE   ulog::internal::UlogEraw(__ULOG_COOKIE)
 #define UlogC   ulog::internal::UlogCraw(__ULOG_COOKIE)
 
+#define UlogNull    ulog::internal::UlogNullraw
+
 namespace ulog
 {
 
@@ -61,6 +63,25 @@ class OstreamUlog : public std::ostream
     OstreamUlog& operator()(struct ulog_cookie& cookie) __attribute__ ((visibility ("default")));
 };
 
+// Output stream that does nothing
+class NullOstreamUlog : public std::ostream {
+public:
+    inline NullOstreamUlog() : std::ostream(NULL) {}
+
+    // Will remove uses of manipulators like std::end and std::hex by doing
+    // nothing
+    inline NullOstreamUlog &operator<<(std::ostream &(*__pf)(std::ostream&))
+    { return *this; }
+    inline NullOstreamUlog &operator<<(std::ios &(*__pf)(std::ios&))
+    { return *this; }
+    inline NullOstreamUlog &operator<<(std::ios_base &(*__pf)(std::ios_base&))
+    { return *this; }
+};
+
+// Output stream that does nothing and that should completely be optimized out
+// during compilation
+template <typename T>
+inline NullOstreamUlog &operator<<(NullOstreamUlog &nos, T val) { return nos; }
 
 extern OstreamUlog UlogDraw;
 extern OstreamUlog UlogIraw;
@@ -68,6 +89,7 @@ extern OstreamUlog UlogNraw;
 extern OstreamUlog UlogWraw;
 extern OstreamUlog UlogEraw;
 extern OstreamUlog UlogCraw;
+extern NullOstreamUlog UlogNullraw;
 
 }
 }
