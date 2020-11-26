@@ -173,17 +173,31 @@
 #define ULOGD(...)      ULOG_PRI(ULOG_DEBUG,  __VA_ARGS__)
 
 /**
- * Log a message that will automatically be predended with the name of the
- * calling function and line number. It will also append the given error as
- * numerical + string (it assumes an errno). The priority will be ERR.
+ * Log a message with implicit tag that will be
+ * - prepended with the name of the calling function and line number.
+ * - appended with the given error as numerical + string (assuming
+ *   error is an errno value).
+ *
  */
-#define ULOG_ERRNO(_fmt, _err, ...) \
-	do { \
-		int __ulog_errno__err = (_err); \
-		ULOGE("%s:%d: " _fmt " err=%d(%s)", \
-		      __func__, __LINE__, ##__VA_ARGS__, \
-		      __ulog_errno__err, strerror(__ulog_errno__err)); \
-	} while (0)
+#define ULOGC_ERRNO(_err, _fmt, ...) \
+	ULOG_PRI_ERRNO((_err), ULOG_CRIT,   _fmt, ##__VA_ARGS__)
+#define ULOGE_ERRNO(_err, _fmt, ...) \
+	ULOG_PRI_ERRNO((_err), ULOG_ERR,    _fmt, ##__VA_ARGS__)
+#define ULOGW_ERRNO(_err, _fmt, ...) \
+	ULOG_PRI_ERRNO((_err), ULOG_WARN,   _fmt, ##__VA_ARGS__)
+#define ULOGN_ERRNO(_err, _fmt, ...) \
+	ULOG_PRI_ERRNO((_err), ULOG_NOTICE, _fmt, ##__VA_ARGS__)
+#define ULOGI_ERRNO(_err, _fmt, ...) \
+	ULOG_PRI_ERRNO((_err), ULOG_INFO,   _fmt, ##__VA_ARGS__)
+#define ULOGD_ERRNO(_err, _fmt, ...) \
+	ULOG_PRI_ERRNO((_err), ULOG_DEBUG,  _fmt, ##__VA_ARGS__)
+
+/**
+ * Compatibility macro to log an error message, with reversed
+ * parameter order.
+ * The priority will be ERR.
+ */
+#define ULOG_ERRNO(_fmt, _err, ...) ULOGE_ERRNO((_err), _fmt, ##__VA_ARGS__)
 
 /**
  * Log an errno message (with the provided positive errno)
@@ -193,7 +207,7 @@
 #define ULOG_ERRNO_RETURN_IF(_cond, _err) \
 	do { \
 		if (ULOG_UNLIKELY(_cond)) { \
-			ULOG_ERRNO("", (_err)); \
+			ULOGE_ERRNO((_err), "");		\
 			return; \
 		} \
 	} while (0)
@@ -207,7 +221,7 @@
 	do { \
 		if (ULOG_UNLIKELY(_cond)) { \
 			int __ulog_errno_return_err_if__err = (_err); \
-			ULOG_ERRNO("", (__ulog_errno_return_err_if__err)); \
+			ULOGE_ERRNO((__ulog_errno_return_err_if__err), ""); \
 			return -(__ulog_errno_return_err_if__err); \
 		} \
 	} while (0)
@@ -220,7 +234,7 @@
 #define ULOG_ERRNO_RETURN_VAL_IF(_cond, _err, _val) \
 	do { \
 		if (ULOG_UNLIKELY(_cond)) { \
-			ULOG_ERRNO("", (_err)); \
+			ULOGE_ERRNO((_err), "");		   \
 			/* codecheck_ignore[RETURN_PARENTHESES] */ \
 			return (_val); \
 		} \
@@ -365,6 +379,13 @@ int ulog_get_tag_names(const char **names, int maxlen);
 
 #define ULOG_PRI(_prio, ...)        ulog_log(_prio, &__ULOG_COOKIE, __VA_ARGS__)
 #define ULOG_PRI_VA(_prio, _f, _a)  ulog_vlog(_prio, &__ULOG_COOKIE, _f, _a)
+#define ULOG_PRI_ERRNO(_err, _pri, _fmt, ...)	\
+	do { \
+		int __ulog_errno__err = (_err); \
+		ulog_log((_pri), &__ULOG_COOKIE, "%s:%d: " _fmt " err=%d(%s)", \
+		      __func__, __LINE__, ##__VA_ARGS__, \
+		      __ulog_errno__err, strerror(__ulog_errno__err)); \
+	} while (0)
 #define ULOG_STR(_prio, _str)       ulog_log_str(_prio, &__ULOG_COOKIE, _str)
 #define ULOG_BUF(_prio, _d, _sz)    ulog_log_buf(_prio, &__ULOG_COOKIE, _d, _sz)
 #define ULOG_BIN(_prio, _dat, _sz)  \
