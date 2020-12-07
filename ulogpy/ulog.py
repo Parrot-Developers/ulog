@@ -40,7 +40,7 @@ def _ulog_bridge(prio, ulog_cookie, buf, size):
         ulog_kernel_write_func(prio, ulog_cookie, buf, size)
 
     # 2. handle the python logging side of things
-    message = _ulog.string_cast(buf)
+    message = _ulog.string_cast(buf, errors="surrogateescape")
     message = message.strip("\r\n")
     level = _prio_logging_map[int(prio)]
     name = "ulog"
