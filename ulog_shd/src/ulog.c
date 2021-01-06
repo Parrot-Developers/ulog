@@ -54,6 +54,8 @@ static void ulog_shd_write(uint32_t prio, struct ulog_cookie *cookie,
 
 	/* Get thread name */
 	if (prctl(PR_GET_NAME, (unsigned long)thread_name, 0, 0, 0) == 0) {
+		/* some OS doesn't null terminate */
+		thread_name[15] = '\0';
 		blob.thnsize = snprintf(blob.buf, ULOG_BUF_SIZE, "%s",
 					thread_name);
 		if (blob.thnsize < 0)

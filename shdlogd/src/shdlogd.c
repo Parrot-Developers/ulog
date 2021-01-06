@@ -213,7 +213,9 @@ static void usage(void)
 		"  -p, --period  PERIOD polling period in milliseconds (default %dms)\n"
 		"  -s, --section NAME   name of the section in shared memory (default %s)\n"
 		"  -d, --device  NAME   name of the ulogger device\n"
-		"\n", SHDLOGD_DEFAULT_PERIOD_MS, SHDLOGD_DEFAULT_SECTION_NAME);
+		"  -n, --pname  NAME   name of the process in ulog (default %s)\n"
+		"\n", SHDLOGD_DEFAULT_PERIOD_MS, SHDLOGD_DEFAULT_SECTION_NAME,
+		SHDLOGD_DEFAULT_PROCESS_NAME);
 }
 
 static bool parse_opts(int argc, char *argv[])
@@ -225,12 +227,13 @@ static bool parse_opts(int argc, char *argv[])
 			{ "period",  1, 0, 'p' },
 			{ "section", 1, 0, 's' },
 			{ "device",  1, 0, 'd' },
+			{ "pname",   1, 0, 'n' },
 			{ "help",    0, 0, 'h' },
 			{ NULL, 0, 0, 0 }
 		};
 		int c;
 
-		c = getopt_long(argc, argv, "s:p:d:h", lopts, NULL);
+		c = getopt_long(argc, argv, "s:p:d:n:h", lopts, NULL);
 		if (c == -1)
 			break;
 
@@ -240,6 +243,10 @@ static bool parse_opts(int argc, char *argv[])
 			break;
 		case 'd':
 			ctx.device = optarg;
+			break;
+		case 'n':
+			ctx.raw.pname = optarg;
+			ctx.raw.pname_len = strlen(optarg) + 1;
 			break;
 		case 'p':
 			ctx.period_ms = atoi(optarg);
