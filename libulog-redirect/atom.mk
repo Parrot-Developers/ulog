@@ -10,7 +10,7 @@ LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 
 LOCAL_SRC_FILES := ulog_glib.c
 
-LOCAL_LIBRARIES := libulog glib
+LOCAL_PRIVATE_LIBRARIES := libulog glib
 
 include $(BUILD_STATIC_LIBRARY)
 
@@ -25,7 +25,7 @@ LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 
 LOCAL_SRC_FILES := ulog_gst.c
 
-LOCAL_LIBRARIES := libulog gstreamer
+LOCAL_PRIVATE_LIBRARIES := libulog gstreamer
 
 include $(BUILD_STATIC_LIBRARY)
 
@@ -40,7 +40,7 @@ LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 
 LOCAL_SRC_FILES := ulog_obus.c
 
-LOCAL_LIBRARIES := libulog libobus
+LOCAL_PRIVATE_LIBRARIES := libulog libobus
 
 include $(BUILD_STATIC_LIBRARY)
 
@@ -53,6 +53,6 @@ LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 
 LOCAL_SRC_FILES := ulog_stdcerr.cpp
 
-LOCAL_LIBRARIES := libulog
+LOCAL_PRIVATE_LIBRARIES := libulog
 
 include $(BUILD_STATIC_LIBRARY)
