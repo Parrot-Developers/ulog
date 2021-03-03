@@ -577,7 +577,11 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	struct ulogger_log *log = file_get_log(iocb->ki_filp);
 	size_t orig;
 	struct ulogger_entry header;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+	struct timespec64 now;
+#else
 	struct timespec now;
+#endif
 	ssize_t ret = 0;
 	const size_t prefix = sizeof(header.len) + sizeof(header.hdr_size);
 	char tcomm[commlen+4];
@@ -595,7 +599,11 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		header.len = min_t(size_t, len, ULOGGER_ENTRY_MAX_PAYLOAD);
 	} else {
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+		ktime_get_ts64(&now);
+#else
 		ktime_get_ts(&now);
+#endif
 
 		header.pid = current->tgid;
 		header.tid = current->pid;
