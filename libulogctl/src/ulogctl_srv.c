@@ -284,7 +284,7 @@ ULOGCTL_API int ulogctl_srv_new(struct sockaddr *addr,
 		return -ENOMEM;
 
 	ulogctl->pomp_ctx = pomp_ctx_new_with_loop(&event_cb, ulogctl, loop);
-	if (res < 0) {
+	if (ulogctl->pomp_ctx == NULL) {
 		ULOGE("pomp_ctx_new_with_loop failed.");
 		goto error;
 	}
