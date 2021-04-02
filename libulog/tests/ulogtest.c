@@ -224,6 +224,8 @@ static void test_raw_mode(void)
 	}
 
 	/* random values for testing */
+	raw.entry.len = 0; /* will be overwritten by kernel */
+	raw.entry.hdr_size = 0; /* will be overwritten by kernel */
 	raw.entry.pid = 42;
 	raw.entry.tid = 44;
 	raw.entry.sec = tv.tv_sec+1;
@@ -246,6 +248,8 @@ static void test_raw_mode(void)
 	}
 
 	/* random values for testing */
+	raw.entry.len = 0; /* will be overwritten by kernel */
+	raw.entry.hdr_size = 0; /* will be overwritten by kernel */
 	raw.entry.pid = 0;
 	raw.entry.tid = 0;
 	raw.entry.sec = tv.tv_sec+2;
