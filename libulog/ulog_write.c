@@ -470,3 +470,16 @@ ULOG_EXPORT int ulog_get_tag_names(const char **nametab, int maxlen)
 
 	return idx;
 }
+
+ULOG_EXPORT int ulog_get_time_monotonic(unsigned long long *now_ms)
+{
+	struct timespec __tp;
+
+	if (!now_ms)
+		return -EINVAL;
+
+	(void)clock_gettime(CLOCK_MONOTONIC, &__tp);
+	*now_ms =  __tp.tv_sec * 1000ULL + __tp.tv_nsec / 1000000ULL;
+
+	return 0;
+}

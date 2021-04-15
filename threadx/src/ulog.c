@@ -26,6 +26,7 @@
 #include "AmbaDataType.h"
 #include "AmbaPrint.h"
 #include "AmbaKAL.h"
+#include "AmbaUtility.h"
 #include "ulog.h"
 
 #define ULOG_EXPORT
@@ -315,6 +316,17 @@ ULOG_EXPORT int ulog_get_tag_names(const char **nametab, int maxlen)
 	(void)AmbaKAL_MutexGive(&ctrl.lock);
 
 	return idx;
+}
+
+ULOG_EXPORT int ulog_get_time_monotonic(unsigned long long *now_ms)
+{
+	UINT64 *__now = now_ms;
+
+	if (!now_ms)
+		return -EINVAL;
+
+	AmbaUtility_GetHighResolutionTimeStamp(__now);
+	return 0;
 }
 
 void ulog_amba_early_init(void)

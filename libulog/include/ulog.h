@@ -360,6 +360,15 @@ int ulog_set_tag_level(const char *name, int level);
  */
 int ulog_get_tag_names(const char **names, int maxlen);
 
+/**
+ * Retrieve current monotonic time.
+ *
+ * @param now_ms Pointer to unsigned long long where current monotonic in ms
+ *		 will be stored.
+ * @return       0 if successful, < 0 if now_ms is NULL
+ */
+int ulog_get_time_monotonic(unsigned long long *now_ms);
+
 #ifdef __cplusplus
 }
 #endif
@@ -492,11 +501,9 @@ void ulog_log_write(uint32_t prio, struct ulog_cookie *cookie,
 	do {								\
 		static ULOG_THREAD unsigned int __masked;		\
 		static ULOG_THREAD unsigned long long __last;		\
-		struct timespec __tp;					\
 		unsigned long long __now;				\
 									\
-		(void)clock_gettime(CLOCK_MONOTONIC, &__tp);		\
-		__now = __tp.tv_sec*1000ULL + __tp.tv_nsec/1000000ULL;	\
+		(void)ulog_get_time_monotonic(&__now);			\
 									\
 		if (__now >= __last + (_ms)) {				\
 			if (__masked) {					\
