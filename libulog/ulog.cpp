@@ -87,6 +87,12 @@ Ulogstream::Ulogstream(int uloglevel,int bs):
 
 Ulogstream::~Ulogstream()
 {
+    std::string *ptr = NULL;
+    if ((ptr = (std::string *)pthread_getspecific(mBufKey)) != NULL) {
+        (void)pthread_setspecific(mBufKey, NULL);
+        delete ptr;
+        ptr = NULL;
+    }
     free(mFakeBuf);
 }
 
