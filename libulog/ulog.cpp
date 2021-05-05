@@ -19,6 +19,8 @@
 
 #include <sstream>
 
+#include <pthread.h>
+
 #include "ulog.hpp"
 #include "ulog_common.h"
 
