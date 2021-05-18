@@ -25,6 +25,8 @@
 #define ULOG_TAG kmsgd
 #include <ulog.h>
 
+#include "kmsgd_evt.h"
+
 ULOG_DECLARE_TAG(kmsgd);
 
 /*
@@ -58,6 +60,7 @@ int main(void)
 			if (q) {
 				*q++ = '\0';
 				ULOG_STR(ULOG_INFO, p);
+				gen_evt(p);
 				count += q-p;
 				p = q;
 			}
