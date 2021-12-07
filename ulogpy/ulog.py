@@ -6,6 +6,7 @@ import logging
 import _ulog
 import os
 import struct
+import sys
 import threading
 import time
 
@@ -327,3 +328,50 @@ class ULogHandler(logging.Handler):
         lines = message.splitlines()
         for line in lines:
             _ulog.ulog_log_str(prio, cookie, line)
+
+
+def setup_logging(process_name):
+    """
+    Setup python logging redirection to ulog and update process name so that it
+    is not just 'python3'. process_name can be either a string or bytes and
+    shall be less than or equal to 15 characters.
+    It also attach a hook to sys.excepthook to intercept uncaught exceptions
+    to log them in ulog as well (instead of just sdterr)
+
+    It returns the root logger.
+    """
+    root_logger = logging.getLogger()
+    root_logger.addHandler(ULogHandler())
+    if os.getenv("ULOG_LEVEL") == "D":
+        root_logger.setLevel(logging.DEBUG)
+    else:
+        root_logger.setLevel(logging.INFO)
+
+    # Attach hook to intercept uncaught exceptions (for example during a
+    # callback from native code). Otherwise they are only printed on stderr
+    # that is not visible for background services.
+    def handle_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        else:
+            root_logger.error(
+                    "Uncaught exception",
+                    exc_info=(exc_type, exc_value, exc_traceback))
+            sys.exit(1)
+    sys.excepthook = handle_exception
+
+    if process_name and sys.platform == "linux":
+        if isinstance(process_name, str):
+            process_name = process_name.encode("utf-8")
+        libc = ctypes.cdll.LoadLibrary("libc.so.6")
+        if libc:
+            # PR_SET_NAME=15
+            libc.prctl(15, process_name, 0, 0, 0)
+
+            # The warning log is after the change because in the simulator,
+            # the process name is cached at first log...
+            if len(process_name) > 15:
+                root_logger.warning("Truncating process name %s -> %s",
+                        process_name, process_name[:15])
+
+    return root_logger
