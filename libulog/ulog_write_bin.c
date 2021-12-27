@@ -129,6 +129,116 @@ ULOG_EXPORT int ulog_bin_writev(int fd,
 	return ret > 0 ? 0 : -errno;
 }
 
+
+/*
+ * Each entry in binary ulog is limited to ULOGGER_ENTRY_MAX_PAYLOAD
+ * (4076) bytes ie 4096 minus kernel fixed header
+ * The kernel payload contains also:
+ * - process/thread names: 2 * 16
+ * - priority: 4
+ * - tag (with null byte)
+ * - header (optional)
+ * - chunk idx: 1
+ */
+static size_t compute_max_chunk_len(size_t tagsize, size_t hdrlen)
+{
+	size_t extra =  2 * 16 + 4 + tagsize + hdrlen + 1;
+	return extra < ULOGGER_ENTRY_MAX_PAYLOAD ?
+		ULOGGER_ENTRY_MAX_PAYLOAD - extra : 0;
+}
+
+ULOG_EXPORT int ulog_bin_write_chunk(int fd,
+	const char *tag,
+	size_t tagsize,
+	const void *hdr,
+	size_t hdrlen,
+	const void *buf,
+	size_t count)
+{
+	struct iovec iov[1];
+	iov[0].iov_base = (void *)buf;
+	iov[0].iov_len = count;
+	return ulog_bin_writev_chunk(fd, tag, tagsize, hdr, hdrlen, iov, 1);
+}
+
+ULOG_EXPORT int ulog_bin_writev_chunk(int fd,
+	const char *tag,
+	size_t tagsize,
+	const void *hdr,
+	size_t hdrlen,
+	const struct iovec *iov,
+	int iovcnt)
+{
+	int res = 0;
+	size_t total = 0;
+	size_t maxchunklen = compute_max_chunk_len(tagsize, hdrlen);
+	uint8_t chunkidx = 0;
+	size_t chunklen = 0;
+	size_t chunkrem = 0;
+	struct iovec iov2[iovcnt + 2];
+	int i = 0;
+	int iovcnt2 = 0;
+	int iovidx = 0;
+	size_t iovoff = 0;
+
+	if (maxchunklen <= 0)
+		return -EINVAL;
+
+	/* Determine total size of the payload */
+	for (i = 0; i < iovcnt; i++)
+		total += iov[i].iov_len;
+
+
+	while (total > 0) {
+		chunklen = total < maxchunklen ? total : maxchunklen;
+
+		iovcnt2 = 0;
+
+		/* Optional header */
+		if (hdrlen > 0) {
+			iov2[iovcnt2].iov_base = (void *)hdr;
+			iov2[iovcnt2].iov_len = hdrlen;
+			iovcnt2++;
+		}
+
+		/* Chunk index */
+		iov2[iovcnt2].iov_base = &chunkidx;
+		iov2[iovcnt2].iov_len = sizeof(chunkidx);
+		iovcnt2++;
+
+		/* Chunk payload */
+		chunkrem = chunklen;
+		while (chunkrem > 0) {
+			/* Setup iov */
+			iov2[iovcnt2].iov_base = (uint8_t *)
+				iov[iovidx].iov_base + iovoff;
+			iov2[iovcnt2].iov_len = iov[iovidx].iov_len - iovoff <
+				chunkrem ? iov[iovidx].iov_len - iovoff :
+				chunkrem;
+
+			/* Go to next source iov */
+			iovoff += iov2[iovcnt2].iov_len;
+			if (iovoff == iov[iovidx].iov_len) {
+				iovidx++;
+				iovoff = 0;
+			}
+
+			/* go to next dst iov */
+			chunkrem -= iov2[iovcnt2].iov_len;
+			iovcnt2++;
+		}
+
+		res = ulog_bin_writev(fd, tag, tagsize, iov2, iovcnt2);
+		if (res < 0)
+			return res;
+
+		total -= chunklen;
+		chunkidx++;
+	}
+
+	return 0;
+}
+
 ULOG_EXPORT int ulog_bin_set_write_func(ulog_bin_write_func_t func)
 {
 	/* Assume this write is atomic */

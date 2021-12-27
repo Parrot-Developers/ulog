@@ -86,6 +86,34 @@ int ulog_bin_writev(int fd,
 	int iovcnt);
 
 /**
+ * Similar to ulog_bin_write, but the payload data will be split into chunks
+ * to avoid truncation. the provided header (optional) will be written for all
+ * chunks. An extra byte will be added with the chunk id, followed by the
+ * payload
+ *
+ * The write will thus be done in one or more chunks with this actual format
+ *
+ * <header>0<chunk0>
+ * <header>1<chunk1>
+ * ...
+ */
+int ulog_bin_write_chunk(int fd,
+	const char *tag,
+	size_t tagsize,
+	const void *hdr,
+	size_t hdrlen,
+	const void *buf,
+	size_t count);
+
+int ulog_bin_writev_chunk(int fd,
+	const char *tag,
+	size_t tagsize,
+	const void *hdr,
+	size_t hdrlen,
+	const struct iovec *iov,
+	int iovcnt);
+
+/**
  * Set a custom write function to overwrite default behaviour
  * @param func New write function
  * @return     0 if successful, -errno upon failure.
