@@ -1112,7 +1112,6 @@ static void delete_log(struct ulogger_log *current_log)
 	misc_deregister(&current_log->misc);
 	vfree(current_log->buffer);
 	kfree(current_log->misc.name);
-	rt_mutex_destroy(&current_log->mutex);
 	kfree(current_log);
 }
 
