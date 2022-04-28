@@ -33,10 +33,18 @@
 #include "ulogger.h"
 #include "ulog_common.h"
 
+/* The ulog driver is only available on linux, but not on Android */
+#if defined(__linux__) && !defined(__ANDROID__)
+#	define FORCE_EXTERNAL_WRITE_FUNC 0
+#else
+#	define FORCE_EXTERNAL_WRITE_FUNC 1
+#endif
+
 static ulog_bin_write_func_t s_write_func;
 
 ULOG_EXPORT int ulog_bin_open(const char *dev)
 {
+#if !FORCE_EXTERNAL_WRITE_FUNC
 	const char *prop;
 	char devbuf[32];
 	struct stat st;
@@ -68,12 +76,23 @@ fail:
 	if (fd >= 0)
 		close(fd);
 	return ret;
+#else
+	/* Since we cannot differenciate logs by device in this mode, we force
+	 * callers to use the default device */
+	if (dev != NULL)
+		return -EINVAL;
+	return 0;
+#endif
 }
 
 ULOG_EXPORT void ulog_bin_close(int fd)
 {
+#if !FORCE_EXTERNAL_WRITE_FUNC
 	if (fd >= 0)
 		close(fd);
+#else
+	/* Nothing to do */
+#endif
 }
 
 ULOG_EXPORT int ulog_bin_write(int fd,
@@ -94,6 +113,7 @@ ULOG_EXPORT int ulog_bin_writev(int fd,
 	const struct iovec *iov,
 	int iovcnt)
 {
+#if !FORCE_EXTERNAL_WRITE_FUNC
 	ssize_t ret;
 	uint32_t prio = ULOG_INFO | (1U << ULOG_PRIO_BINARY_SHIFT);
 	struct iovec vec[2 + iovcnt];
@@ -127,6 +147,18 @@ ULOG_EXPORT int ulog_bin_writev(int fd,
 	} while ((ret < 0) && (errno == EINTR));
 
 	return ret > 0 ? 0 : -errno;
+#else
+	ulog_bin_write_func_t func;
+
+	/* Handle custom write function if any, Assume this read is atomic */
+	func = s_write_func;
+	if (func != NULL) {
+		(*func)(tag, tagsize, iov, iovcnt);
+		return 0;
+	}
+	/* Otherwise, we can not log */
+	return -ENOSYS;
+#endif
 }
 
 
