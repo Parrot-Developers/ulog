@@ -48,12 +48,18 @@
 #ifdef iov_for_each
 #undef iov_for_each
 #endif
-#define iov_for_each(iov, iter, start)                     \
-	if (!((start).type & (ITER_BVEC | ITER_PIPE)))     \
-	for (iter = (start);                               \
-		(iter).count &&                            \
-		((iov = iov_iter_iovec(&(iter))), 1);      \
-		iov_iter_advance(&(iter), (iov).iov_len))
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
+// iov_iter's type got renamed to iter_type and is no longer a bitfield
+#define iov_for_each(iov, iter, start) \
+  if ((start).iter_type != ITER_BVEC && (start).iter_type != ITER_PIPE) \
+	  for (iter = (start); (iter).count && ((iov = iov_iter_iovec(&(iter))), 1); \
+	       iov_iter_advance(&(iter), (iov).iov_len))
+#else
+#define iov_for_each(iov, iter, start) \
+  if (!((start).type & (ITER_BVEC | ITER_PIPE))) \
+	  for (iter = (start); (iter).count && ((iov = iov_iter_iovec(&(iter))), 1); \
+	       iov_iter_advance(&(iter), (iov).iov_len))
+#endif
 #endif
 
 
