@@ -19,6 +19,7 @@ package in directory OUTPUT_DIR."
 trap on_exit EXIT
 
 out_dir=$(realpath $1)
+mkdir -p $out_dir
 start_dir=$PWD
 script_dir=$(dirname $0)
 workdir=$(mktemp -d)
