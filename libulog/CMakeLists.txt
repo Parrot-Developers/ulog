@@ -6,7 +6,7 @@ set(LIB_SOURCES
 
 add_library(ulog ${LIB_SOURCES})
 
-option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
+#option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 set_target_properties(ulog PROPERTIES
                     POSITION_INDEPENDENT_CODE ${BUILD_SHARED_LIBS}
 )
