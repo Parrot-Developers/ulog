@@ -1,6 +1,7 @@
 set(LIB_SOURCES
         ulog_read.c 
         ulog_write.c
+        ulog_write_android.c
         ulog.cpp
 )
 
@@ -19,5 +20,6 @@ target_compile_options(ulog PRIVATE "-fvisibility=hidden")
 
 
 target_link_libraries(ulog
-                        pthread
+                      pthread
 )
+
