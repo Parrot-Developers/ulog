@@ -3,6 +3,15 @@ set(LIB_SOURCES
         ulog_write.c
         ulog.cpp
 )
+if(UNIX)
+  set(LIB_SOURCES
+        ${LIB_SOURCES}
+        ulog_write_android.c 
+        ulog_write_bin.c 
+        ulog_write_raw.c
+  )
+endif()
+
 
 add_library(ulog ${LIB_SOURCES})
 
@@ -16,11 +25,11 @@ target_include_directories(ulog PUBLIC
                             $<INSTALL_INTERFACE:include>
 )
 
-target_compile_definitions(ulog PRIVATE "_FILE_OFFSET_BITS=64")
 target_compile_definitions(ulog PRIVATE "LIBULOG_HEADERS=${CMAKE_CURRENT_SOURCE_DIR}/include/ulog.h:${CMAKE_CURRENT_SOURCE_DIR}/include/ulograw.h;")
 target_compile_options(ulog PRIVATE "-fvisibility=hidden")
 
-
-target_link_libraries(ulog
+if(WIN32)
+        target_link_libraries(ulog
                         pthread
-)
+        )
+endif()
