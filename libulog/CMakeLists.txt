@@ -1,3 +1,13 @@
+cmake_minimum_required(VERSION 3.15)
+#No project name since ulog libulog will collide
+
+# checks if set up rpath exists for install
+if(COMMAND set_up_rpath)
+    set_up_rpath()
+else()
+    message("Set up rpath not defined!")
+endif()
+
 set(LIB_SOURCES
         ulog_read.c 
         ulog_write.c
@@ -20,6 +30,14 @@ target_compile_options(ulog PRIVATE "-fvisibility=hidden")
 
 
 target_link_libraries(ulog
+                    PRIVATE
                       pthread
 )
 
+
+install(TARGETS ${PROJECT_NAME}
+        EXPORT ${PROJECT_NAME}-targets
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+        )
