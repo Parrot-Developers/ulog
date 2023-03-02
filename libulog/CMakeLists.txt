@@ -1,12 +1,4 @@
 cmake_minimum_required(VERSION 3.15)
-#No project name since ulog libulog will collide
-
-# checks if set up rpath exists for install
-if(COMMAND set_up_rpath)
-    set_up_rpath()
-else()
-    message("Set up rpath not defined!")
-endif()
 
 set(LIB_SOURCES
         ulog_read.c 
@@ -25,6 +17,13 @@ endif()
 
 
 add_library(ulog ${LIB_SOURCES})
+
+# checks if set up rpath exists for install
+if(COMMAND set_up_rpath)
+    set_up_rpath()
+else()
+    message("Set up rpath not defined!")
+endif()
 
 #option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 set_target_properties(ulog PROPERTIES
