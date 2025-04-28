@@ -36,7 +36,7 @@ ulogger_src_dir="${src_dir}/${NAME}-${VERSION}"
 
 package="ulogger-dkms_${VERSION}"
 input_deb_dir="${dkms_dir}/${NAME}/${VERSION}/deb"
-output_deb_file="${out_dir}/${package}-1_all.deb"
+output_deb_file="${out_dir}/${package}_all.deb"
 
 DKMS_SETUP="--dkmstree ${dkms_dir} --sourcetree ${src_dir} --installtree ${install_dir}"
 DKMS_MOD="-m $NAME -v $VERSION"
@@ -53,8 +53,8 @@ for f in ${patched_files}; do
 	sed -i "s/@@@VERSION@@@/${VERSION}/g" ${f}
 done
 
-dkms add $DKMS_ARG
-#dkms build $DKMS_ARG
+# fakeroot needed since dkms v2.8
+fakeroot dkms add $DKMS_ARG
 dkms mkdeb $DKMS_ARG --source-only
 
 cd ${start_dir}

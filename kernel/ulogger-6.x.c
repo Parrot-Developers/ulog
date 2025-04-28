@@ -3,7 +3,7 @@
  *
  * A fork of the Android Logger.
  *
- * Copyright (C) 2013 Parrot S.A.
+ * Copyright (C) 2023 Parrot S.A.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -15,8 +15,10 @@
  * GNU General Public License for more details.
  */
 
-#include <linux/kernel.h>
-#include <linux/sched.h>
+/* YMM-approved ugliness */
+#include <linux/version.h>
+#include <linux/sched/signal.h>
+#include <linux/rtmutex.h>
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
@@ -30,6 +32,7 @@
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 #include <linux/aio.h>
+#include <linux/uio.h>
 
 #include "ulogger.h"
 
@@ -309,7 +312,7 @@ static ssize_t do_read_log_to_user(struct ulogger_log *log,
  * 'log->buffer' which contains the first entry readable by 'euid'
  */
 static size_t get_next_entry_by_uid(struct ulogger_log *log, size_t off,
-				    ulogger_uid_t euid)
+				    kuid_t euid)
 {
 	while (off != log->w_off) {
 		struct ulogger_entry *entry;
@@ -318,7 +321,7 @@ static size_t get_next_entry_by_uid(struct ulogger_log *log, size_t off,
 
 		entry = get_entry_header(log, off, &scratch);
 
-		if (ulogger_uid_eq(entry->euid, euid))
+		if (uid_eq(entry->euid, euid))
 			return off;
 
 		next_len = sizeof(struct ulogger_entry) + entry->len;
@@ -502,7 +505,7 @@ static void do_write_log(struct ulogger_log *log, const void *buf, size_t count)
 {
 	size_t len;
 
-	len = min(count, log->size - log->w_off);
+	len = min_t(size_t, count, log->size - log->w_off);
 	memcpy(log->buffer + log->w_off, buf, len);
 
 	if (count != len)
@@ -544,33 +547,32 @@ static ssize_t do_write_log_from_user(struct ulogger_log *log,
 }
 
 /*
- * ulogger_aio_write - our write method, implementing support for write(),
- * writev(), and aio_write(). Writes are our fast path, and we try to optimize
+ * ulogger_write_iter - our write method, implementing support for write(),
+ * writev(), and write_iter(). Writes are our fast path, and we try to optimize
  * them above all else.
  */
-ssize_t ulogger_aio_write(struct kiocb *iocb, const struct iovec *iov,
-			  unsigned long nr_segs, loff_t ppos)
+ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
+#define commlen (sizeof(current->comm))
 	struct ulogger_log *log = file_get_log(iocb->ki_filp);
 	size_t orig;
 	struct ulogger_entry header;
-	struct timespec now;
+	struct timespec64 now;
 	ssize_t ret = 0;
-	const size_t commlen = sizeof(current->comm);
 	const size_t prefix = sizeof(header.len) + sizeof(header.hdr_size);
 	char tcomm[commlen + 4];
 	char pcomm[commlen + 4];
-	size_t size, tlen, plen, len = ulogger_kiocb_left(iocb);
+	size_t size, tlen = 0, plen = 0, len = iov_iter_count(from);
 	const bool rawmode = file_get_private_flag(iocb->ki_filp);
 
 	if (rawmode) {
 		if (len < (sizeof(struct ulogger_entry) - prefix))
 			return -EINVAL;
 		/* user payload must contain a partial ulogger_entry */
-		len -= sizeof(struct ulogger_entry) - prefix;
+		len -= (sizeof(struct ulogger_entry) - prefix);
 		header.len = min_t(size_t, len, ULOGGER_ENTRY_MAX_PAYLOAD);
 	} else {
-		ktime_get_ts(&now);
+		ktime_get_ts64(&now);
 
 		header.pid = current->tgid;
 		header.tid = current->pid;
@@ -632,23 +634,45 @@ ssize_t ulogger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		size -= prefix;
 	}
 
-	while (nr_segs-- > 0) {
-		size_t len;
-		ssize_t nr;
+	if (iter_is_iovec(from) || iov_iter_is_xarray(from)) {
+		while (iov_iter_count(from)) {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0))
+			const struct iovec* iov = iter_iov(from);
+#else
+			struct iovec tmp = iov_iter_iovec(from);
+			struct iovec* iov = &tmp;
+#endif
+			/* figure out how much of this vector we can keep */
+			size_t len = min_t(size_t, iov->iov_len, size - ret);
 
-		/* figure out how much of this vector we can keep */
-		len = min_t(size_t, iov->iov_len, size - ret);
+			/* write out this segment's payload */
+			ssize_t nr =
+				do_write_log_from_user(log, iov->iov_base, len);
 
-		/* write out this segment's payload */
-		nr = do_write_log_from_user(log, iov->iov_base, len);
-		if (unlikely(nr < 0)) {
+			if (unlikely(nr < 0)) {
+				log->w_off = orig;
+				rt_mutex_unlock(&log->mutex);
+				return nr;
+			}
+
+			ret += nr;
+
+			iov_iter_advance(from, iov->iov_len);
+		}
+	} else if (iter_is_ubuf(from)) {
+		// ubuf is one segment only
+
+		/* figure out how much of the buffer we can keep */
+		size_t len = min_t(size_t, size, iov_iter_count(from));
+
+		/* write out the payload */
+		ret = do_write_log_from_user(log, from->ubuf, len);
+
+		if (unlikely(ret < 0)) {
 			log->w_off = orig;
 			rt_mutex_unlock(&log->mutex);
-			return nr;
+			return ret;
 		}
-
-		iov++;
-		ret += nr;
 	}
 
 	rt_mutex_unlock(&log->mutex);
@@ -658,8 +682,6 @@ ssize_t ulogger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 
 	return ret;
 }
-
-static struct ulogger_log *get_log_from_minor(int minor);
 
 /*
  * ulogger_open - the log's open() file operation
@@ -675,16 +697,9 @@ static int ulogger_open(struct inode *inode, struct file *file)
 	if (ret)
 		return ret;
 
-	if (file_private_data_has_miscdevice_pointer()) {
-		/* file->private_data points to our misc struct */
-		log = container_of(file_get_private_ptr(file),
-				   struct ulogger_log, misc);
-	} else {
-		/* slower version for older kernels, requires mutex locking */
-		log = get_log_from_minor(MINOR(inode->i_rdev));
-		if (!log)
-			return -ENODEV;
-	}
+	/* file->private_data points to our misc struct */
+	log = container_of(file_get_private_ptr(file), struct ulogger_log,
+			   misc);
 
 	if (file->f_mode & FMODE_READ) {
 		struct ulogger_reader *reader;
@@ -705,7 +720,6 @@ static int ulogger_open(struct inode *inode, struct file *file)
 		reader->r_dropped = log->dropped;
 		list_add_tail(&reader->list, &log->readers);
 		rt_mutex_unlock(&log->mutex);
-
 		file_set_private_data(file, reader, 0);
 	} else
 		file_set_private_data(file, log, 0);
@@ -893,7 +907,7 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 static const struct file_operations ulogger_fops = {
 	.owner = THIS_MODULE,
 	.read = ulogger_read,
-	.aio_write = ulogger_aio_write,
+	.write_iter = ulogger_write_iter,
 	.poll = ulogger_poll,
 	.unlocked_ioctl = ulogger_ioctl,
 	.compat_ioctl = ulogger_ioctl,
@@ -939,30 +953,6 @@ static DEFINE_MUTEX(logs_mutex);
 
 /* default size of ulog_main's buffer (in power of 2) */
 static int main_buffer_size = 18;
-
-static struct ulogger_log *get_log_from_minor(int minor)
-{
-	unsigned int i;
-	struct ulogger_log *log = NULL;
-
-	if (log_main.misc.minor == minor)
-		return &log_main;
-
-	mutex_lock(&logs_mutex);
-
-	for (i = 0; i < ARRAY_SIZE(ulogger_logs); i++) {
-		if (ulogger_logs[i] == NULL)
-			break;
-		if (ulogger_logs[i]->misc.minor == minor) {
-			log = ulogger_logs[i];
-			break;
-		}
-	}
-
-	mutex_unlock(&logs_mutex);
-
-	return log;
-}
 
 static int init_log(struct ulogger_log *log)
 {

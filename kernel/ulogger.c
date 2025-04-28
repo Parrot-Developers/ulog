@@ -1,7 +1,10 @@
 /* YMM-approved ugliness */
 #include <linux/version.h>
 /* codecheck_ignore[LINUX_VERSION_CODE] */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0))
+#include "ulogger-6.x.c"
+/* codecheck_ignore[LINUX_VERSION_CODE] */
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 0, 0))
 #include "ulogger-4.x.c"
 #else
 #include "ulogger-3.x.c"

@@ -120,11 +120,16 @@
  *
  * ULOG_DEVICE=balboa  (default device is 'main')
  *
+ * The logging device can be changed dynamically with:
+ *
+ *   ulog_set_log_device("newdevicename");
+ *
  * To enable printing a copy of each message to stderr:
  * ULOG_STDERR=y
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
@@ -256,6 +261,9 @@
 #define ULOG_EVT(_type, _fmt, ...) \
 	ULOGN("EVT:" _type ";" _fmt, ##__VA_ARGS__)
 
+#define ULOG_EVT_THROTTLE(_ms, _type, _fmt, ...) \
+	ULOGN_THROTTLE(_ms, "EVT:" _type ";" _fmt, ##__VA_ARGS__)
+
 /**
  * Log as NOTICE a secret event (containing identification information) log of
  *  the form:
@@ -274,6 +282,8 @@
 #define ULOG_EVTS(_type, _fmt, ...) \
 	ULOGN("EVTS:" _type ";" _fmt, ##__VA_ARGS__)
 
+#define ULOG_EVTS_THROTTLE(_ms, _type, _fmt, ...) \
+	ULOGN_THROTTLE(_ms, "EVTS:" _type ";" _fmt, ##__VA_ARGS__)
 
 /**
  * Maximum length of an ascii message.
@@ -332,6 +342,10 @@
  */
 #define ULOG_GET_LEVEL()             ulog_get_level(&__ULOG_COOKIE)
 
+/**
+ * Set current timestamp, used for replay mode
+ */
+#define ULOG_REPLAY_UPDATE_TIMESTAMP(ts) writer_update_replay_timestamp(ts)
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -587,6 +601,7 @@ ulog_write_func_t ulog_get_write_func(void);
 typedef void (*ulog_cookie_register_func_t) (struct ulog_cookie *cookie);
 
 int ulog_set_cookie_register_func(ulog_cookie_register_func_t func);
+void writer_update_replay_timestamp(struct timespec ts);
 
 /**
  * Call a function for each cookie.
@@ -609,6 +624,16 @@ int ulog_set_cookie_register_func(ulog_cookie_register_func_t func);
  */
 int ulog_foreach(void (*cb) (struct ulog_cookie *cookie, void *userdata),
 		void *userdata);
+
+/**
+ * Dynamically change the kernel ulog device
+ *
+ * This takes precedence over the ULOG_DEVICE environment variable
+ * @param ulog_device The name of the new ulog device to use
+ *                    (located at /dev/ulog_<ulog_device>)
+ * @return 0 in case of success, negative errno value in case of error.
+ */
+int ulog_set_log_device(const char *ulog_device);
 
 #ifdef __cplusplus
 }

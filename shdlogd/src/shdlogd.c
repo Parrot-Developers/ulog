@@ -145,7 +145,12 @@ static int read_samples()
 	ret = shd_select_samples(ctx.shd.ctx, &ctx.shd.search, &metadata,
 					&result);
 	if (ret < 0) {
-		if (ret != -ENOENT && ret != -EAGAIN)
+		if (ret == -ENODEV) {
+			ULOGW("shd_select_samples failed: %s, reopening",
+				strerror(-ret));
+			shd_close(ctx.shd.ctx, ctx.shd.rev);
+			ctx.shd.ctx = shd_open(ctx.section, NULL, &ctx.shd.rev);
+		} else if (ret != -ENOENT && ret != -EAGAIN)
 			ULOGE("shd_select_samples failed: %s", strerror(-ret));
 		return ret;
 	}

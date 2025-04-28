@@ -1,6 +1,6 @@
 # .rc file for kmsgd service -*- mode:conf -*-
 on init
-    write /sys/devices/virtual/misc/ulog_main/logs "ulog_kmsgd 17"
+    write /sys/devices/virtual/misc/ulog_main/logs "ulog_kmsgd 18"
 
 service kmsgd /usr/bin/kmsgd
     setenv ULOG_DEVICE kmsgd

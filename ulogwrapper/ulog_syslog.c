@@ -21,8 +21,10 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <ulog.h>
+#include <stdio.h>
 
 static int init_done;
+static int allow_long_logs;
 static pthread_mutex_t ulog_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct ulog_cookie cookie = {
 	.name     = "",
@@ -60,6 +62,8 @@ void openlog(const char *ident,
 				cookie.name = strdup(ident);
 				cookie.namesize = strlen(ident)+1;
 			}
+			if (getenv("ULOGWRAPPER_LONG_LOGS"))
+				allow_long_logs = 1;
 			init_done = 1;
 		}
 		pthread_mutex_unlock(&ulog_lock);
@@ -68,6 +72,34 @@ void openlog(const char *ident,
 	/* add a log to force device opening if LOG_NDELAY option given */
 	if (option & 0x08)
 		ulog_log(ULOG_INFO, &cookie, "redirecting syslog to ulog");
+}
+
+static void ulog_vlog_notruncate(uint32_t prio, struct ulog_cookie *cookie,
+				 const char *fmt, va_list ap)
+{
+	int ret;
+	char buf[ULOG_BUF_SIZE];
+	const int bufsize = (int)sizeof(buf);
+
+	ret = vsnprintf(buf, bufsize, fmt, ap);
+	if (ret < 0)
+		return;
+	if (ret < bufsize) {
+		ulog_log_buf(prio, cookie, buf, ret+1);
+		return;
+	}
+	if (!allow_long_logs) {
+		ulog_log_buf(prio, cookie, buf, bufsize);
+		return;
+	}
+
+	const int mbufsize = ret+1;
+	char *mbuf = malloc(mbufsize);
+	if (!mbuf)
+		return;
+	vsprintf(mbuf, fmt, ap);
+	ulog_log_buf(prio, cookie, mbuf, mbufsize);
+	free(mbuf);
 }
 
 __attribute__ ((format (printf, 2, 3)))
@@ -79,7 +111,8 @@ void syslog(int priority, const char *format, ...)
 		openlog(NULL, 0, 0);
 
 	va_start(ap, format);
-	ulog_vlog(priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
+	ulog_vlog_notruncate(
+		priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
 	va_end(ap);
 }
 
@@ -93,7 +126,8 @@ void vsyslog(int priority, const char *format, va_list ap)
 	if (!init_done)
 		openlog(NULL, 0, 0);
 
-	ulog_vlog(priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
+	ulog_vlog_notruncate(
+		priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
 }
 
 __attribute__ ((format (printf, 3, 4)))
@@ -107,7 +141,8 @@ void __syslog_chk(int priority,
 		openlog(NULL, 0, 0);
 
 	va_start(ap, format);
-	ulog_vlog(priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
+	ulog_vlog_notruncate(
+		priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
 	va_end(ap);
 }
 
@@ -119,7 +154,8 @@ void __vsyslog_chk(int priority,
 	if (!init_done)
 		openlog(NULL, 0, 0);
 
-	ulog_vlog(priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
+	ulog_vlog_notruncate(
+		priority & ULOG_PRIO_LEVEL_MASK, &cookie, format, ap);
 }
 
 int setlogmask(int mask)

@@ -15,11 +15,13 @@ a) Install the package containing your current kernel headers.
    $ sudo apt-get install linux-headers-3.9-1-amd64
    Your headers will typically reside in a /usr/src/linux-headers-xxx directory.
 
-b) Then, edit Makefile and change the line 'obj-y += ulogger.o' into
-   'obj-m += ulogger.o'.
-
-c) Compile the ulogger.ko module:
+b) Compile the ulogger.ko module:
    $ make -C <path_to_your_linux_headers> M=$(pwd) modules
 
-d) Load the driver:
-   $ sudo /sbin/insmod ulogger.ko
+c) Load the driver:
+
+   - without parameter
+       $ sudo /sbin/insmod ulogger.ko
+
+   - with ulog_main's buffer size as parameter
+       $ sudo /sbin/insmod ulogger.ko main_buffer_size=24

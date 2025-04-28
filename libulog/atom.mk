@@ -14,6 +14,10 @@ LOCAL_SRC_FILES := ulog_read.c ulog_write.c
 ifeq ("$(TARGET_OS)","windows")
   LOCAL_SRC_FILES += ulog.cpp
   LOCAL_LDLIBS += -lpthread
+else ifeq ("$(TARGET_OS)","hexagon")
+  LOCAL_SRC_FILES += ulog.cpp ulog_write_hexagon.c
+else ifeq ("$(TARGET_CPU)","hi3559-m7")
+  LOCAL_SRC_FILES += ulog_write_bin.c ulog_write_raw.c
 else
   LOCAL_SRC_FILES += ulog.cpp ulog_write_android.c ulog_write_bin.c ulog_write_raw.c
 endif

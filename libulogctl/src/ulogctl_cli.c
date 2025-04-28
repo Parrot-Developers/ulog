@@ -150,11 +150,14 @@ static int send_msg(struct ulogctl_cli *self)
 	res = pomp_ctx_send_msg(self->pomp_ctx, self->msg);
 	if (res < 0) {
 		LOG_ERRNO("pomp_ctx_send_msg", -res);
+
+		/* Message no more needed in case of error */
+		pomp_msg_destroy(self->msg);
+		self->msg = NULL;
 		return res;
 	}
 
-	pomp_msg_destroy(self->msg);
-	self->msg = NULL;
+	/* Keep message that will be checked in send_cb */
 	return 0;
 }
 

@@ -358,7 +358,15 @@ def setup_logging(process_name):
                     "Uncaught exception",
                     exc_info=(exc_type, exc_value, exc_traceback))
             sys.exit(1)
+
+    def handle_unraisable(unraisable):
+        handle_exception(
+                unraisable.exc_type,
+                unraisable.exc_value,
+                unraisable.exc_traceback)
+
     sys.excepthook = handle_exception
+    sys.unraisablehook = handle_unraisable
 
     if process_name and sys.platform == "linux":
         if isinstance(process_name, str):

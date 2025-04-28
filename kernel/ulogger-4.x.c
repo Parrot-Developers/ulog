@@ -43,25 +43,26 @@
 
 #include <asm/ioctls.h>
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
 /* Kernels 5.x require to (re)define the macros used below */
 #ifdef iov_for_each
 #undef iov_for_each
 #endif
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
 // iov_iter's type got renamed to iter_type and is no longer a bitfield
-#define iov_for_each(iov, iter, start) \
-  if ((start).iter_type != ITER_BVEC && (start).iter_type != ITER_PIPE) \
-	  for (iter = (start); (iter).count && ((iov = iov_iter_iovec(&(iter))), 1); \
-	       iov_iter_advance(&(iter), (iov).iov_len))
+#define iov_for_each(iov, iter, start)                                        \
+	if ((start).iter_type != ITER_BVEC && (start).iter_type != ITER_PIPE) \
+		for (iter = (start);                                          \
+		     (iter).count && ((iov = iov_iter_iovec(&(iter))), 1);    \
+		     iov_iter_advance(&(iter), (iov).iov_len))
 #else
-#define iov_for_each(iov, iter, start) \
-  if (!((start).type & (ITER_BVEC | ITER_PIPE))) \
-	  for (iter = (start); (iter).count && ((iov = iov_iter_iovec(&(iter))), 1); \
-	       iov_iter_advance(&(iter), (iov).iov_len))
+#define iov_for_each(iov, iter, start)                                     \
+	if (!((start).type & (ITER_BVEC | ITER_PIPE)))                     \
+		for (iter = (start);                                       \
+		     (iter).count && ((iov = iov_iter_iovec(&(iter))), 1); \
+		     iov_iter_advance(&(iter), (iov).iov_len))
 #endif
 #endif
-
 
 /*
  * struct ulogger_log - represents a specific log, such as 'main' or 'radio'
@@ -71,15 +72,15 @@
  * mutex 'mutex'.
  */
 struct ulogger_log {
-	unsigned char		*buffer;/* the ring buffer itself */
-	struct miscdevice	misc;	/* misc device representing the log */
-	wait_queue_head_t	wq;	/* wait queue for readers */
-	struct list_head	readers; /* this log's readers */
-	struct rt_mutex		mutex;	/* mutex protecting buffer */
-	size_t			w_off;	/* current write head offset */
-	size_t			head;	/* new readers start here */
-	size_t			size;	/* size of the log */
-	size_t                  dropped;/* number of globally dropped entries */
+	unsigned char *buffer; /* the ring buffer itself */
+	struct miscdevice misc; /* misc device representing the log */
+	wait_queue_head_t wq; /* wait queue for readers */
+	struct list_head readers; /* this log's readers */
+	struct rt_mutex mutex; /* mutex protecting buffer */
+	size_t w_off; /* current write head offset */
+	size_t head; /* new readers start here */
+	size_t size; /* size of the log */
+	size_t dropped; /* number of globally dropped entries */
 };
 
 /*
@@ -89,18 +90,18 @@ struct ulogger_log {
  * reference counting. The structure is protected by log->mutex.
  */
 struct ulogger_reader {
-	struct ulogger_log	*log;	/* associated log */
-	struct list_head	list;	/* entry in ulogger_log's list */
-	size_t			r_off;	/* current read head offset */
-	bool			r_all;	/* reader can read all entries */
-	int			r_ver;	/* reader ABI version */
-	size_t			r_dropped; /* dropped entries for reader */
+	struct ulogger_log *log; /* associated log */
+	struct list_head list; /* entry in ulogger_log's list */
+	size_t r_off; /* current read head offset */
+	bool r_all; /* reader can read all entries */
+	int r_ver; /* reader ABI version */
+	size_t r_dropped; /* dropped entries for reader */
 };
 
 /* ulogger_offset - returns index 'n' into the log via (optimized) modulus */
 size_t ulogger_offset(struct ulogger_log *log, size_t n)
 {
-	return n & (log->size-1);
+	return n & (log->size - 1);
 }
 
 /* extract pointer from private data */
@@ -118,13 +119,14 @@ static inline int file_get_private_flag(struct file *file)
 /* hack: we use a tagged pointer to store a writer flag */
 static void file_set_private_data(struct file *file, void *ptr, int flag)
 {
-	file->private_data = (void *)(((unsigned long)ptr)|(flag ? 1UL : 0UL));
+	file->private_data =
+		(void *)(((unsigned long)ptr) | (flag ? 1UL : 0UL));
 }
 
 static void file_set_private_flag(struct file *file, int flag)
 {
 	unsigned long ptr = (unsigned long)file_get_private_ptr(file);
-	file->private_data = (void *)(ptr|(flag ? 1UL : 0UL));
+	file->private_data = (void *)(ptr | (flag ? 1UL : 0UL));
 }
 
 /*
@@ -158,17 +160,18 @@ static inline struct ulogger_log *file_get_log(struct file *file)
  * the log entry spans the end and beginning of the circular buffer.
  */
 static struct ulogger_entry *get_entry_header(struct ulogger_log *log,
-		size_t off, struct ulogger_entry *scratch)
+					      size_t off,
+					      struct ulogger_entry *scratch)
 {
 	size_t len = min(sizeof(struct ulogger_entry), log->size - off);
 	if (len != sizeof(struct ulogger_entry)) {
-		memcpy(((void *) scratch), log->buffer + off, len);
-		memcpy(((void *) scratch) + len, log->buffer,
-			sizeof(struct ulogger_entry) - len);
+		memcpy(((void *)scratch), log->buffer + off, len);
+		memcpy(((void *)scratch) + len, log->buffer,
+		       sizeof(struct ulogger_entry) - len);
 		return scratch;
 	}
 
-	return (struct ulogger_entry *) (log->buffer + off);
+	return (struct ulogger_entry *)(log->buffer + off);
 }
 
 /*
@@ -199,24 +202,24 @@ static size_t get_user_hdr_len(int ver)
 }
 
 static ssize_t copy_header_to_user(int ver, struct ulogger_entry *entry,
-					 char __user *buf)
+				   char __user *buf)
 {
 	void *hdr;
 	size_t hdr_len;
 	struct user_ulogger_entry_compat v1;
 
 	if (ver < 2) {
-		v1.len      = entry->len;
-		v1.__pad    = 0;
-		v1.pid      = entry->pid;
-		v1.tid      = entry->tid;
-		v1.sec      = entry->sec;
-		v1.nsec     = entry->nsec;
-		hdr         = &v1;
-		hdr_len     = sizeof(struct user_ulogger_entry_compat);
+		v1.len = entry->len;
+		v1.__pad = 0;
+		v1.pid = entry->pid;
+		v1.tid = entry->tid;
+		v1.sec = entry->sec;
+		v1.nsec = entry->nsec;
+		hdr = &v1;
+		hdr_len = sizeof(struct user_ulogger_entry_compat);
 	} else {
-		hdr         = entry;
-		hdr_len     = sizeof(struct ulogger_entry);
+		hdr = entry;
+		hdr_len = sizeof(struct ulogger_entry);
 	}
 
 	return copy_to_user(buf, hdr, hdr_len);
@@ -230,8 +233,7 @@ static ssize_t copy_header_to_user(int ver, struct ulogger_entry *entry,
  */
 static ssize_t do_read_drop_summary(struct ulogger_log *log,
 				    struct ulogger_reader *reader,
-				    char __user *buf,
-				    size_t count)
+				    char __user *buf, size_t count)
 {
 	int ret;
 	size_t hdrlen;
@@ -253,16 +255,16 @@ static ssize_t do_read_drop_summary(struct ulogger_log *log,
 	ret = snprintf(msgbuf, sizeof(msgbuf),
 		       /* <pname>\0<tname>\0<priority:4><tag>\0<message> */
 		       "%c%c%c%c%c%s%c%d log entries dropped\n",
-		       '\0',           /* empty pname, no thread (pid=tid) */
-		       4, 0, 0, 0,     /* WARN prio level */
+		       '\0', /* empty pname, no thread (pid=tid) */
+		       4, 0, 0, 0, /* WARN prio level */
 		       log->misc.name, /* tag */
-		       '\0',           /* tag trailing null byte */
+		       '\0', /* tag trailing null byte */
 		       (int)reader->r_dropped);
 
 	if ((ret < 0) || (ret >= sizeof(msgbuf)))
 		return -EFAULT;
 
-	summary.len = ret+1; /* count trailing null byte */
+	summary.len = ret + 1; /* count trailing null byte */
 	hdrlen = get_user_hdr_len(reader->r_ver);
 
 	if (count < hdrlen + summary.len)
@@ -288,8 +290,7 @@ static ssize_t do_read_drop_summary(struct ulogger_log *log,
  */
 static ssize_t do_read_log_to_user(struct ulogger_log *log,
 				   struct ulogger_reader *reader,
-				   char __user *buf,
-				   size_t count)
+				   char __user *buf, size_t count)
 {
 	struct ulogger_entry scratch;
 	struct ulogger_entry *entry;
@@ -306,8 +307,8 @@ static ssize_t do_read_log_to_user(struct ulogger_log *log,
 
 	count -= get_user_hdr_len(reader->r_ver);
 	buf += get_user_hdr_len(reader->r_ver);
-	msg_start = ulogger_offset(log,
-		reader->r_off + sizeof(struct ulogger_entry));
+	msg_start = ulogger_offset(log, reader->r_off +
+						sizeof(struct ulogger_entry));
 
 	/*
 	 * We read from the msg in two disjoint operations. First, we read from
@@ -326,8 +327,8 @@ static ssize_t do_read_log_to_user(struct ulogger_log *log,
 		if (copy_to_user(buf + len, log->buffer, count - len))
 			return -EFAULT;
 
-	reader->r_off = ulogger_offset(log, reader->r_off +
-		sizeof(struct ulogger_entry) + count);
+	reader->r_off = ulogger_offset(
+		log, reader->r_off + sizeof(struct ulogger_entry) + count);
 
 	return count + get_user_hdr_len(reader->r_ver);
 }
@@ -336,8 +337,8 @@ static ssize_t do_read_log_to_user(struct ulogger_log *log,
  * get_next_entry_by_uid - Starting at 'off', returns an offset into
  * 'log->buffer' which contains the first entry readable by 'euid'
  */
-static size_t get_next_entry_by_uid(struct ulogger_log *log,
-		size_t off, kuid_t euid)
+static size_t get_next_entry_by_uid(struct ulogger_log *log, size_t off,
+				    kuid_t euid)
 {
 	while (off != log->w_off) {
 		struct ulogger_entry *entry;
@@ -368,8 +369,8 @@ static size_t get_next_entry_by_uid(struct ulogger_log *log,
  * Will set errno to EINVAL if read
  * buffer is insufficient to hold next entry.
  */
-static ssize_t ulogger_read(struct file *file, char __user *buf,
-			   size_t count, loff_t *pos)
+static ssize_t ulogger_read(struct file *file, char __user *buf, size_t count,
+			    loff_t *pos)
 {
 	struct ulogger_reader *reader = file_get_private_ptr(file);
 	struct ulogger_log *log = reader->log;
@@ -407,8 +408,8 @@ start:
 	rt_mutex_lock(&log->mutex);
 
 	if (!reader->r_all)
-		reader->r_off = get_next_entry_by_uid(log,
-			reader->r_off, current_euid());
+		reader->r_off = get_next_entry_by_uid(log, reader->r_off,
+						      current_euid());
 
 	/* is there still something to read or did we race? */
 	if (unlikely(log->w_off == reader->r_off)) {
@@ -427,7 +428,7 @@ start:
 
 	/* get the size of the next entry */
 	ret = get_user_hdr_len(reader->r_ver) +
-		get_entry_msg_len(log, reader->r_off);
+	      get_entry_msg_len(log, reader->r_off);
 	if (count < ret) {
 		ret = -EINVAL;
 		goto out;
@@ -455,7 +456,7 @@ static size_t get_next_entry(struct ulogger_log *log, size_t off, size_t len,
 
 	do {
 		size_t nr = sizeof(struct ulogger_entry) +
-			get_entry_msg_len(log, off);
+			    get_entry_msg_len(log, off);
 		off = ulogger_offset(log, off + nr);
 		count += nr;
 		entries++;
@@ -537,7 +538,6 @@ static void do_write_log(struct ulogger_log *log, const void *buf, size_t count)
 		memcpy(log->buffer, buf + len, count - len);
 
 	log->w_off = ulogger_offset(log, log->w_off + count);
-
 }
 
 /*
@@ -579,7 +579,7 @@ static ssize_t do_write_log_from_user(struct ulogger_log *log,
  */
 ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {
-	#define commlen (sizeof(current->comm))
+#define commlen (sizeof(current->comm))
 	struct ulogger_log *log = file_get_log(iocb->ki_filp);
 	size_t orig;
 	struct ulogger_entry header;
@@ -590,8 +590,8 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 #endif
 	ssize_t ret = 0;
 	const size_t prefix = sizeof(header.len) + sizeof(header.hdr_size);
-	char tcomm[commlen+4];
-	char pcomm[commlen+4];
+	char tcomm[commlen + 4];
+	char pcomm[commlen + 4];
 	size_t size, tlen = 0, plen = 0, len = iov_iter_count(from);
 	struct iovec iov;
 	struct iov_iter iter;
@@ -604,7 +604,6 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		len -= (sizeof(struct ulogger_entry) - prefix);
 		header.len = min_t(size_t, len, ULOGGER_ENTRY_MAX_PAYLOAD);
 	} else {
-
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
 		ktime_get_ts64(&now);
 #else
@@ -617,11 +616,11 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		/* retrieve process (thread group leader) and thread names */
 		memcpy(pcomm, current->group_leader->comm, commlen);
 		pcomm[commlen] = '\0';
-		plen = strlen(pcomm)+1;
+		plen = strlen(pcomm) + 1;
 		if (header.pid != header.tid) {
 			memcpy(tcomm, current->comm, commlen);
 			tcomm[commlen] = '\0';
-			tlen = strlen(tcomm)+1;
+			tlen = strlen(tcomm) + 1;
 		} else {
 			tlen = 0;
 		}
@@ -671,7 +670,8 @@ ssize_t ulogger_write_iter(struct kiocb *iocb, struct iov_iter *from)
 		size -= prefix;
 	}
 
-	iov_for_each(iov, iter, *from) {
+	iov_for_each(iov, iter, *from)
+	{
 		size_t len;
 		ssize_t nr;
 
@@ -725,7 +725,7 @@ static int ulogger_open(struct inode *inode, struct file *file)
 		reader->log = log;
 		reader->r_ver = 2;
 		reader->r_all = in_egroup_p(inode->i_gid) ||
-			capable(CAP_SYS_ADMIN);
+				capable(CAP_SYS_ADMIN);
 
 		INIT_LIST_HEAD(&reader->list);
 
@@ -787,8 +787,8 @@ static unsigned int ulogger_poll(struct file *file, poll_table *wait)
 
 	rt_mutex_lock(&log->mutex);
 	if (!reader->r_all)
-		reader->r_off = get_next_entry_by_uid(log,
-			reader->r_off, current_euid());
+		reader->r_off = get_next_entry_by_uid(log, reader->r_off,
+						      current_euid());
 
 	if (log->w_off != reader->r_off)
 		ret |= POLLIN | POLLRDNORM;
@@ -829,7 +829,7 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 	struct ulogger_log *log = file_get_log(file);
 	struct ulogger_reader *reader;
 	long ret = -EINVAL;
-	void __user *argp = (void __user *) arg;
+	void __user *argp = (void __user *)arg;
 
 	rt_mutex_lock(&log->mutex);
 
@@ -856,12 +856,12 @@ static long ulogger_ioctl(struct file *file, unsigned int cmd,
 		reader = file_get_private_ptr(file);
 
 		if (!reader->r_all)
-			reader->r_off = get_next_entry_by_uid(log,
-				reader->r_off, current_euid());
+			reader->r_off = get_next_entry_by_uid(
+				log, reader->r_off, current_euid());
 
 		if (log->w_off != reader->r_off)
 			ret = get_user_hdr_len(reader->r_ver) +
-				get_entry_msg_len(log, reader->r_off);
+			      get_entry_msg_len(log, reader->r_off);
 		else
 			ret = 0;
 		break;
@@ -934,10 +934,9 @@ static const struct file_operations ulogger_fops = {
  * must be a power of two, and greater than
  * (ULOGGER_ENTRY_MAX_PAYLOAD + sizeof(struct ulogger_entry)).
  */
-#define DEFINE_ULOGGER_DEVICE(VAR, NAME, SIZE) \
-static unsigned char _buf_ ## VAR[SIZE]; \
-static struct ulogger_log VAR = { \
-	.buffer = _buf_ ## VAR, \
+#define DEFINE_ULOGGER_DEVICE(VAR, NAME) \
+	static struct ulogger_log VAR = { \
+	.buffer = 0, \
 	.misc = { \
 		.minor = MISC_DYNAMIC_MINOR, \
 		.name = NAME, \
@@ -951,20 +950,23 @@ static struct ulogger_log VAR = { \
 	.w_off = 0, \
 	.head = 0, \
 	.dropped = 0, \
-	.size = SIZE, \
+	.size = 0, \
 };
 
-DEFINE_ULOGGER_DEVICE(log_main, ULOGGER_LOG_MAIN, 256*1024)
+DEFINE_ULOGGER_DEVICE(log_main, ULOGGER_LOG_MAIN)
 
 /*
  * ulogger_logs - the array of currently available logging devices
  *
  * New devices can be added by writing to a sysfs attribute of log_main.
  */
-static struct ulogger_log *ulogger_logs[ULOGGER_MAX_LOGS] = {&log_main};
+static struct ulogger_log *ulogger_logs[ULOGGER_MAX_LOGS] = { &log_main };
 
 /* logs_mutex - protects access to ulogger_logs */
 static DEFINE_MUTEX(logs_mutex);
+
+/* default size of ulog_main's buffer (in power of 2) */
+static int main_buffer_size = 18;
 
 static int init_log(struct ulogger_log *log)
 {
@@ -978,7 +980,7 @@ static int init_log(struct ulogger_log *log)
 	}
 
 	pr_info("ulogger: created %luK log '%s'\n",
-	       (unsigned long) log->size >> 10, log->misc.name);
+		(unsigned long)log->size >> 10, log->misc.name);
 
 	return 0;
 }
@@ -991,7 +993,7 @@ static ssize_t ulogger_show_logs(struct device *dev,
 {
 	unsigned int i;
 	ssize_t count = 0;
-	const unsigned int length = PAGE_SIZE/ARRAY_SIZE(ulogger_logs);
+	const unsigned int length = PAGE_SIZE / ARRAY_SIZE(ulogger_logs);
 
 	mutex_lock(&logs_mutex);
 
@@ -1000,7 +1002,7 @@ static ssize_t ulogger_show_logs(struct device *dev,
 			break;
 		count += scnprintf(&buf[count], length, "%s %u\n",
 				   ulogger_logs[i]->misc.name,
-				   ffs(ulogger_logs[i]->size)-1);
+				   ffs(ulogger_logs[i]->size) - 1);
 	}
 
 	mutex_unlock(&logs_mutex);
@@ -1008,12 +1010,18 @@ static ssize_t ulogger_show_logs(struct device *dev,
 	return count;
 }
 
+static int check_buf_size(int pow2)
+{
+	/* 16 kB <= size <= 16 MB */
+	return ((pow2 >= 14) && (pow2 <= 24));
+}
+
 /*
  * Dynamically allocate and register a new log device.
  */
 static ssize_t ulogger_add_log(struct device *dev,
-			       struct device_attribute *attr,
-			       const char *buf, size_t count)
+			       struct device_attribute *attr, const char *buf,
+			       size_t count)
 {
 	char namebuf[16];
 	int i, len, slot, ret = -EINVAL;
@@ -1036,8 +1044,8 @@ static ssize_t ulogger_add_log(struct device *dev,
 		if (!islower(namebuf[i]))
 			goto bad_spec;
 
-	/* sanity check: 16 kB <= size <= 1 MB */
-	if ((size < 14) || (size > 20))
+	/* sanity check on size */
+	if (!check_buf_size(size))
 		goto bad_spec;
 
 	name = kstrdup(namebuf, GFP_KERNEL);
@@ -1047,8 +1055,8 @@ static ssize_t ulogger_add_log(struct device *dev,
 	buffer = vmalloc(size);
 
 	if (!log || !buffer) {
-		pr_err("ulogger: failed to allocate log '%s' size %u\n",
-		       name, size);
+		pr_err("ulogger: failed to allocate log '%s' size %u\n", name,
+		       size);
 		ret = -ENOMEM;
 		goto fail;
 	}
@@ -1096,11 +1104,26 @@ fail:
 	return ret;
 }
 
-static DEVICE_ATTR(logs, S_IWUSR|S_IRUGO, ulogger_show_logs, ulogger_add_log);
+static DEVICE_ATTR(logs, S_IWUSR | S_IRUGO, ulogger_show_logs, ulogger_add_log);
+
+module_param(main_buffer_size, int, S_IRUGO); // ulog_main's size parameter
 
 static int __init ulogger_init(void)
 {
 	int ret;
+	unsigned long size;
+
+	pr_info("Loading ulogger with param 'main_buffer_size' %d\n",
+		main_buffer_size);
+
+	if (!check_buf_size(main_buffer_size)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	size = 1UL << main_buffer_size;
+	log_main.buffer = vmalloc(size);
+	log_main.size = size;
 
 	/* static device 'main' is always present */
 	ret = init_log(&log_main);
@@ -1127,6 +1150,7 @@ static void __exit ulogger_exit(void)
 
 	device_remove_file(log_main.misc.this_device, &dev_attr_logs);
 	misc_deregister(&log_main.misc);
+	vfree(log_main.buffer);
 
 	mutex_lock(&logs_mutex);
 

@@ -251,7 +251,8 @@ static int parse_addr(struct app *app, const char *arg_addr)
 		memset(addr_un, 0, sizeof(*addr_un));
 		addr_un->sun_family = AF_UNIX;
 		strncpy(addr_un->sun_path, arg_addr + 5,
-				sizeof(addr_un->sun_path));
+				sizeof(addr_un->sun_path) - 1);
+		addr_un->sun_path[sizeof(addr_un->sun_path) - 1] = '\0';
 		if (arg_addr[5] == '@')
 			addr_un->sun_path[0] = '\0';
 		app->addrlen = offsetof(struct sockaddr_un, sun_path) +

@@ -31,6 +31,8 @@ static struct {
 	bool shd_enabled;
 	struct shd_ctx *shd;
 	uint16_t index;
+	pthread_mutex_t lock;
+	pthread_mutexattr_t attr;
 } ctrl = {
 	.shd_enabled = false,
 	.index = 1,
@@ -46,9 +48,13 @@ static void ulog_shd_write(uint32_t prio, struct ulog_cookie *cookie,
 	char thread_name[16];
 	int offset = 0;
 
+	pthread_mutex_lock(&ctrl.lock);
+
 	/* Avoid recursion of ulog messages from libshdata */
-	if (!ctrl.shd_enabled)
+	if (!ctrl.shd_enabled) {
+		pthread_mutex_unlock(&ctrl.lock);
 		return;
+	}
 
 	blob.prio = (unsigned char)(prio & ULOG_PRIO_LEVEL_MASK);
 
@@ -105,12 +111,14 @@ static void ulog_shd_write(uint32_t prio, struct ulog_cookie *cookie,
 	shd_write(ctrl.shd, &sample);
 
 	ctrl.shd_enabled = true;
+
+	pthread_mutex_unlock(&ctrl.lock);
 }
 
 int ulog_shd_init(const char *section_name, uint32_t max_nb_logs)
 {
 	struct shd_header hdr;
-	unsigned int meta;
+	unsigned int meta = 0;
 	int res;
 
 	hdr.sample_count = max_nb_logs;
@@ -123,6 +131,24 @@ int ulog_shd_init(const char *section_name, uint32_t max_nb_logs)
 		printf("failed to create section ulog in shdata: %s",
 		       strerror(-res));
 		return res;
+	}
+
+	res = pthread_mutexattr_init(&ctrl.attr);
+	if (res != 0) {
+		printf("failed to init mutex attr: %s", strerror(res));
+		return -res;
+	}
+
+	res = pthread_mutexattr_settype(&ctrl.attr, PTHREAD_MUTEX_RECURSIVE);
+	if (res != 0) {
+		printf("failed to set mutex attr: %s", strerror(res));
+		return -res;
+	}
+
+	res = pthread_mutex_init(&ctrl.lock, &ctrl.attr);
+	if (res != 0) {
+		printf("failed to init mutex: %s", strerror(res));
+		return -res;
 	}
 
 	ulog_set_write_func(&ulog_shd_write);

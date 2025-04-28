@@ -55,6 +55,9 @@ static struct {
 	/* cookie register hook */
 	ulog_cookie_register_func_t cookie_register_hook;
 	struct ulog_cookie *cookie_list;
+	char *device; /* ulog_device to use */
+	int                 replay_timestamp_set;
+	struct timespec     replay_timestamp; /* for stderr replayer log */
 } ctrl = {
 	.lock        = PTHREAD_MUTEX_INITIALIZER,
 	.fd          = -1,
@@ -62,6 +65,8 @@ static struct {
 	.writer2     = NULL,
 	.cookie_register_hook = NULL,
 	.cookie_list = NULL,
+	.device      = NULL,
+	.replay_timestamp_set = 0,
 };
 
 /* null writer (used when both ulogger and syslog are disabled) */
@@ -97,6 +102,12 @@ static void __writer_kernel(uint32_t prio, struct ulog_cookie *cookie,
 }
 #endif
 
+ULOG_EXPORT void writer_update_replay_timestamp(struct timespec ts)
+{
+	ctrl.replay_timestamp = ts;
+	ctrl.replay_timestamp_set = 1;
+}
+
 /* copy log messages to stderr */
 static void __writer_stderr(uint32_t prio, struct ulog_cookie *cookie,
 			    const char *buf, int len, const char *cprio)
@@ -107,8 +118,15 @@ static void __writer_stderr(uint32_t prio, struct ulog_cookie *cookie,
 		/* skip binary data */
 		return;
 
-	fprintf(stderr, "%s %s: %s%s", cprio, cookie->name, buf,
-		((len >= 2) && (buf[len-2] == '\n')) ? "" : "\n");
+	if (ctrl.replay_timestamp_set)
+		fprintf(stderr, "%ld.%03lu %s %s: %s%s",
+			(long int)ctrl.replay_timestamp.tv_sec,
+			(long int)ctrl.replay_timestamp.tv_nsec / (1000 * 1000),
+			cprio, cookie->name, buf,
+			((len >= 2) && (buf[len-2] == '\n')) ? "" : "\n");
+	else
+		fprintf(stderr, "%s %s: %s%s", cprio, cookie->name, buf,
+			((len >= 2) && (buf[len-2] == '\n')) ? "" : "\n");
 }
 
 /* copy log messages to stderr with color */
@@ -142,19 +160,27 @@ static void __writer_stderr_wrapper(uint32_t prio, struct ulog_cookie *cookie,
 			priotab[prio & ULOG_PRIO_LEVEL_MASK]);
 }
 
+#define DEV_MAX_LEN 32
+#define DEV_PREFIX "/dev/ulog_"
+#define DEV_NAME_MAX_LEN (DEV_MAX_LEN - strlen(DEV_PREFIX) - 1)
+
 static void __ctrl_init(void)
 {
 	ulog_write_func_t writer = __writer_null;
 #ifndef _WIN32
 	const char *prop, *dev;
-	char devbuf[32];
+	char devbuf[DEV_MAX_LEN];
 	struct stat st;
 
 	/* first try to use ulogger kernel device */
 	dev = "/dev/" ULOGGER_LOG_MAIN;
 	prop = getenv("ULOG_DEVICE");
-	if (prop) {
-		snprintf(devbuf, sizeof(devbuf), "/dev/ulog_%s", prop);
+	if (ctrl.device) {
+		snprintf(devbuf, sizeof(devbuf),
+			"%s%s", DEV_PREFIX, ctrl.device);
+		dev = devbuf;
+	} else if (prop) {
+		snprintf(devbuf, sizeof(devbuf), "%s%s", DEV_PREFIX, prop);
 		dev = devbuf;
 	}
 
@@ -278,6 +304,38 @@ ULOG_EXPORT int ulog_foreach(
 	}
 
 	return 0;
+}
+
+ULOG_EXPORT int ulog_set_log_device(const char *ulog_device)
+{
+	int ret = 0;
+	if (!ulog_device)
+		return -EINVAL;
+	if (strlen(ulog_device) >= DEV_NAME_MAX_LEN)
+		return -E2BIG;
+
+	pthread_mutex_lock(&ctrl.lock);
+
+	if (ctrl.device)
+		free(ctrl.device);
+
+	ctrl.device = strdup(ulog_device);
+	if (!ctrl.device) {
+		ret = -ENOMEM;
+		goto exit;
+	}
+
+	if (ctrl.writer != __writer_init) {
+		/* Writer already initialized, deinit it and restart */
+		if (ctrl.fd > 0) {
+			close(ctrl.fd);
+			ctrl.fd = -1;
+		}
+		ctrl.writer = __writer_init;
+	}
+exit:
+	pthread_mutex_unlock(&ctrl.lock);
+	return ret;
 }
 
 /* parse a log level description (letter or digit) */

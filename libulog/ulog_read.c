@@ -44,23 +44,31 @@ static const char *get_token(const char **str, size_t *_size)
 static int ulog_parse_payload_unformatted(char *p, size_t size,
 					  struct ulog_entry *entry)
 {
-	int len;
-
+	size_t len;
+	static const char zero_length_str[] = "<<zero-length>>";
 	entry->priority = ULOG_INFO;
 	entry->is_binary = 0;
 	entry->color = 0;
+	entry->pname = "";
+	entry->tname = "";
 	entry->tag = "";
 	entry->message = p;
 
 	len = strnlen(p, size);
 	if (len == 0) {
-		entry->message = "";
-	} else {
-		/* null-terminate string, buffer should be large enough */
+		entry->message = zero_length_str;
+		entry->len = sizeof(zero_length_str);
+	} else if (len < size) {
+		/* null-terminate string */
 		p[len] = '\0';
+		/* count trailing '\0' */
+		entry->len = len + 1;
+	} else {
+		/* null-terminate the (truncated) string
+		 * buffer is not large enough */
+		p[size - 1] = '\0';
+		entry->len = size;
 	}
-	/* count trailing '\0' */
-	entry->len = len+1;
 	return 0;
 }
 
@@ -77,13 +85,13 @@ static int ulog_parse_payload(char *p, size_t size, struct ulog_entry *entry)
 	/* process name */
 	entry->pname = get_token((const char **)&p, &size);
 	if (!entry->pname)
-		return -1;
+		return ulog_parse_payload_unformatted(p, size, entry);
 
 	/* thread name */
 	if (entry->pid != entry->tid) {
 		entry->tname = get_token((const char **)&p, &size);
 		if (!entry->tname)
-			return -1;
+			return ulog_parse_payload_unformatted(p, size, entry);
 	} else {
 		entry->tname = entry->pname;
 	}
@@ -109,9 +117,10 @@ static int ulog_parse_payload(char *p, size_t size, struct ulog_entry *entry)
 	entry->len = size;
 
 	if (!entry->is_binary) {
-		/* message should be at least one byte */
+		/* Message should be at least one byte.
+		 * Just return a default message. */
 		if (!size)
-			return -1;
+			return ulog_parse_payload_unformatted(p, 0, entry);
 
 		entry->len = strnlen(p, size);
 		if (entry->len == (int)size)
