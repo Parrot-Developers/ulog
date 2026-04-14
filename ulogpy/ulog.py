@@ -383,3 +383,83 @@ def setup_logging(process_name):
                         process_name, process_name[:15])
 
     return root_logger
+
+
+class LoggerPlus(logging.Logger):
+    def __init__(self, name):
+        super().__init__(name)
+        self._saved_msg = {}
+
+    def _throttled_log(self, log_level, delay_ms, msg, *args, **kwargs):
+        """
+        Log after a specified delay.
+        """
+        formatted_msg = msg % args if args else msg
+        formatted_msg += "_throttled"
+        now = time.perf_counter_ns() / 1000000
+
+        if formatted_msg not in self._saved_msg:
+            self._saved_msg[formatted_msg] = (now, 0)
+            log_level(msg, *args, **kwargs)
+            return
+
+        last_ms, masked = self._saved_msg[formatted_msg]
+        if now - last_ms > delay_ms:
+            if masked:
+                log_level(f'[{masked}] ' + msg, *args, **kwargs)
+                masked = 0
+            else:
+                log_level(msg, *args, **kwargs)
+            last_ms = now
+        else:
+            masked += 1
+        self._saved_msg[formatted_msg] = (last_ms, masked)
+
+    def _changed_log(self, value, log_level, msg, *args, **kwargs):
+        """
+        Log only if value has changed.
+        """
+        if (
+            msg not in self._saved_msg
+            or value != self._saved_msg[msg]
+        ):
+            self._saved_msg[msg] = value
+            log_level(msg, *args, **kwargs)
+
+    # THROTTLED LOG
+    def info_throttle(self, ms, msg, *args, **kwargs):
+        self._throttled_log(self.info, ms, msg, *args, **kwargs)
+
+    def critical_throttle(self, ms, msg, *args, **kwargs):
+        self._throttled_log(self.critical, ms, msg, *args, **kwargs)
+
+    def warning_throttle(self, ms, msg, *args, **kwargs):
+        self._throttled_log(self.warning, ms, msg, *args, **kwargs)
+
+    def exception_throttle(self, ms, msg, *args, **kwargs):
+        self._throttled_log(self.exception, ms, msg, *args, **kwargs)
+
+    def debug_throttle(self, ms, msg, *args, **kwargs):
+        self._throttled_log(self.debug, ms, msg, *args, **kwargs)
+
+    def error_throttle(self, ms, msg, *args, **kwargs):
+        self._throttled_log(self.error, ms, msg, *args, **kwargs)
+
+    # CHANGED LOG
+    def info_change(self, value, msg, *args, **kwargs):
+        self._changed_log(value, self.info, msg, *args, **kwargs)
+
+    def critical_change(self, value, msg, *args, **kwargs):
+        self._changed_log(value, self.critical, msg, *args, **kwargs)
+
+    def warning_change(self, value, msg, *args, **kwargs):
+        self._changed_log(value, self.warning, msg, *args, **kwargs)
+
+    def exception_change(self, value, msg, *args, **kwargs):
+        self._changed_log(value, self.exception, msg, *args, **kwargs)
+
+    def debug_change(self, value, msg, *args, **kwargs):
+        self._changed_log(value, self.debug, msg, *args, **kwargs)
+
+    def error_change(self, value, msg, *args, **kwargs):
+        self._changed_log(value, self.error, msg, *args, **kwargs)
