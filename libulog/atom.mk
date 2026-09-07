@@ -5,7 +5,7 @@ LOCAL_MODULE := libulog
 LOCAL_DESCRIPTION := A minimalistic logging library derived from Android logger
 LOCAL_CATEGORY_PATH := libs
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
-LOCAL_EXPORT_CUSTOM_VARIABLES := LIBULOG_HEADERS=$\
+PRIVATE_LIBULOG_HEADERS := \
 	$(LOCAL_PATH)/include/ulog.h:$(LOCAL_PATH)/include/ulograw.h;
 LOCAL_CFLAGS := -fvisibility=hidden
 
@@ -18,9 +18,13 @@ else ifeq ("$(TARGET_OS)","hexagon")
   LOCAL_SRC_FILES += ulog.cpp ulog_write_hexagon.c
 else ifeq ("$(TARGET_CPU)","hi3559-m7")
   LOCAL_SRC_FILES += ulog_write_bin.c ulog_write_raw.c
+  PRIVATE_LIBULOG_HEADERS := $(LOCAL_PATH)/include/ulogbin.h:$(PRIVATE_LIBULOG_HEADERS)
 else
   LOCAL_SRC_FILES += ulog.cpp ulog_write_android.c ulog_write_bin.c ulog_write_raw.c
+  PRIVATE_LIBULOG_HEADERS := $(LOCAL_PATH)/include/ulogbin.h:$(PRIVATE_LIBULOG_HEADERS)
 endif
+
+LOCAL_EXPORT_CUSTOM_VARIABLES := LIBULOG_HEADERS=$(PRIVATE_LIBULOG_HEADERS)
 
 ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
 ifdef USE_ALCHEMY_ANDROID_SDK

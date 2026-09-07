@@ -9,6 +9,7 @@ import struct
 import sys
 import threading
 import time
+import typing
 
 _prio_logging_map = {
     0: logging.CRITICAL,
@@ -86,6 +87,42 @@ def disable_bridge(logger):
     global _ulog_loggers
     if logger in _ulog_loggers:
         _ulog_loggers.remove(logger)
+
+
+class UlogBin(object):
+
+    def __init__(self, label: str, device: typing.Optional[str] = None):
+        device_bytes = None
+        if device is not None:
+            device_bytes = device.encode("utf-8")
+
+        self.fd: ctypes.c_int = _ulog.ulog_bin_open(
+            ctypes.c_char_p(device_bytes)
+        )
+        if self.fd < 0:
+            raise OSError(
+                ctypes.get_errno(),
+                "ulog device '{}' cannot be created".format(
+                    self._device_name.decode()
+                ),
+            )
+
+        self.tag: bytes = label.encode("utf-8")
+        self.tag_len = ctypes.c_size_t(len(self.tag) + 1)  # Add NUL byte
+
+    def __del__(self):
+        _ulog.ulog_bin_close(self.fd)
+
+    def write(self, data: bytes, hdr: typing.Optional[bytes] = None) -> None:
+        hdr_len = ctypes.c_size_t(0 if hdr is None else len(hdr))
+        data_len = ctypes.c_size_t(len(data))
+        tag_p = ctypes.c_char_p(self.tag)
+        hdr_p = ctypes.c_char_p(hdr)
+        data_p = ctypes.c_char_p(data)
+        # Ignore return value
+        _ulog.ulog_bin_write_chunk(
+            self.fd, tag_p, self.tag_len, hdr_p, hdr_len, data_p, data_len
+        )
 
 
 RawEntry = _ulog.struct_ulog_raw_entry
